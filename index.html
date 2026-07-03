@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MNQ Cockpit</title>
+<meta name="theme-color" content="#0e1117">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MNQ Cockpit">
+<style>
+  :root { --bg:#0e1117; --panel:#161b26; --line:#252b3a; --txt:#dfe6f3; --dim:#8a94ab;
+          --grn:#26a69a; --red:#ef5350; --blu:#2962ff; --amber:#ffb74d; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--txt); font:15px/1.5 -apple-system,Helvetica,Arial,sans-serif;
+         padding-bottom:env(safe-area-inset-bottom); }
+  header { padding:calc(14px + env(safe-area-inset-top)) 20px 14px; background:var(--panel);
+           border-bottom:1px solid var(--line);
+           display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+  header h1 { font-size:19px; } header span.sub { color:var(--dim); font-size:13px; }
+  #hdr_eq { margin-left:auto; font-size:19px; font-weight:700; }
+  #syncchip { font-size:11px; color:var(--dim); border:1px solid var(--line); border-radius:20px;
+              padding:3px 10px; cursor:pointer; white-space:nowrap; align-self:center; }
+  #syncchip.ok { color:var(--grn); border-color:rgba(38,166,154,.45); }
+  #syncchip.err { color:var(--amber); border-color:rgba(255,183,77,.45); }
+  #syncchip.busy { color:var(--blu); border-color:rgba(41,98,255,.45); }
+  nav { display:flex; background:var(--panel); border-bottom:1px solid var(--line); overflow-x:auto; }
+  nav button { background:none; border:none; color:var(--dim); padding:12px 18px; font-size:14px;
+               cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap; }
+  nav button.on { color:var(--txt); border-bottom-color:var(--blu); }
+  main { padding:20px; max-width:1150px; margin:0 auto; }
+  .tab { display:none; } .tab.on { display:block; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px;
+          margin-bottom:16px; overflow-x:auto; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+  .kpi { text-align:center; padding:8px; }
+  .kpi .v { font-size:22px; font-weight:700; } .kpi .l { color:var(--dim); font-size:11px; letter-spacing:.4px; }
+  .pos { color:var(--grn); } .neg { color:var(--red); } .amb { color:var(--amber); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th,td { padding:7px 10px; text-align:right; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:600; } td:first-child,th:first-child { text-align:left; }
+  tr.now { background:rgba(41,98,255,.15); outline:1px solid var(--blu); }
+  input,select,textarea { background:#0b0e14; color:var(--txt); border:1px solid var(--line);
+    border-radius:6px; padding:8px; font-size:14px; }
+  button.act { background:var(--blu); color:#fff; border:none; border-radius:6px; padding:9px 16px;
+    font-size:14px; cursor:pointer; } button.act.gray { background:#37415b; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+  pre { background:#0b0e14; border:1px solid var(--line); border-radius:8px; padding:14px;
+        overflow:auto; font-size:12px; line-height:1.45; max-height:560px; }
+  h2 { font-size:16px; margin-bottom:10px; } h3 { font-size:13px; color:var(--dim); margin:12px 0 6px; }
+  .note { color:var(--dim); font-size:13px; margin-top:8px; }
+  ul { margin:6px 0 6px 20px; }
+  canvas { width:100%; height:200px; display:block; }
+  @media (max-width:640px){
+    main { padding:12px; } .card { padding:12px; }
+    header { padding-left:14px; padding-right:14px; gap:10px; }
+    header h1 { font-size:17px; } #hdr_eq { font-size:17px; }
+    header span.sub { display:none; }
+    nav button { padding:11px 13px; }
+    input,select,textarea { font-size:16px; }  /* stops iOS zoom-on-focus */
+    th,td { padding:6px; font-size:12.5px; }
+    .kpi .v { font-size:19px; }
+  }
+</style>
+</head>
+<body>
+<header><h1>MNQ Cockpit</h1>
+  <span class="sub">Opening Momentum system &middot; equity auto-tracks the journal</span>
+  <div id="syncchip" onclick="goDash()">sync off</div>
+  <div id="hdr_eq">$2,000</div></header>
+<nav>
+  <button class="on" data-t="dash">Dashboard</button>
+  <button data-t="ana">Analytics</button>
+  <button data-t="ladder">Ladder</button>
+  <button data-t="trades">Trades</button>
+  <button data-t="code">Code</button>
+  <button data-t="rules">Rules</button>
+</nav>
+<main>
+
+<!-- ================= DASHBOARD ================= -->
+<div class="tab on" id="dash">
+  <div class="card">
+    <div class="grid">
+      <div class="kpi"><div class="v" id="d_eq">–</div><div class="l">EQUITY (AUTO)</div></div>
+      <div class="kpi"><div class="v" id="d_pos">–</div><div class="l">TRADE THIS SIZE</div></div>
+      <div class="kpi"><div class="v" id="d_next">–</div><div class="l">NEXT SIZE-UP AT</div></div>
+      <div class="kpi"><div class="v" id="d_down">–</div><div class="l">SIZE-DOWN BELOW</div></div>
+      <div class="kpi"><div class="v" id="d_exp">–</div><div class="l">EXPECTED $/DAY</div></div>
+      <div class="kpi"><div class="v" id="d_risk">–</div><div class="l">RISK / TRADE</div></div>
+      <div class="kpi"><div class="v" id="d_floor">–</div><div class="l">$500 FLOOR</div></div>
+    </div>
+  </div>
+  <div class="card"><h2>Equity curve</h2><canvas id="c_eq"></canvas></div>
+  <div class="card">
+    <h2>Account settings &amp; cash movements</h2>
+    <div class="row"><label>Starting balance: $</label>
+      <input type="number" id="startbal" step="50" style="width:120px">
+      <button class="act" onclick="setStart()">Set</button></div>
+    <div class="row"><label>Deposit / Withdrawal: $</label>
+      <input type="number" id="adjamt" step="50" style="width:120px" placeholder="amount">
+      <button class="act" onclick="addAdj(1)">Deposit</button>
+      <button class="act gray" onclick="addAdj(-1)">Withdraw</button>
+      <span class="note" id="adjsum"></span></div>
+  </div>
+  <div class="card" id="synccard">
+    <h2>Phone &amp; Mac sync</h2>
+    <div class="row">
+      <input type="password" id="s_token" placeholder="GitHub token (gist scope)" style="flex:1;min-width:220px" autocomplete="off">
+      <button class="act" onclick="connectSync()">Connect</button>
+      <button class="act gray" onclick="disconnectSync()">Disconnect</button>
+    </div>
+    <div class="note" id="s_stat">Sync off — data lives on this device only.</div>
+    <div class="note">One-time setup: github.com &rarr; Settings &rarr; Developer settings &rarr; Personal access
+      tokens &rarr; <b>Tokens (classic)</b> &rarr; Generate new token (classic) &rarr; tick only <b>gist</b> &rarr;
+      Generate. Paste the same token here on each device — the shared ledger is found (or created) automatically
+      as a private gist on your account. Treat the token like a password.</div>
+    <h3>BACKUP</h3>
+    <div class="row">
+      <button class="act gray" onclick="exportJSON()">Export full backup (JSON)</button>
+      <button class="act gray" onclick="document.getElementById('impfile').click()">Import backup (merges)</button>
+      <input type="file" id="impfile" accept=".json,application/json" style="display:none" onchange="importJSON(this)">
+    </div>
+  </div>
+</div>
+
+<!-- ================= ANALYTICS ================= -->
+<div class="tab" id="ana">
+  <div class="card">
+    <div class="grid">
+      <div class="kpi"><div class="v" id="a_net">$0</div><div class="l">NET P&amp;L</div></div>
+      <div class="kpi"><div class="v" id="a_day">$0</div><div class="l">AVG $/DAY</div></div>
+      <div class="kpi"><div class="v" id="a_win">–</div><div class="l">WIN RATE</div></div>
+      <div class="kpi"><div class="v" id="a_pf">–</div><div class="l">PROFIT FACTOR</div></div>
+      <div class="kpi"><div class="v" id="a_expc">–</div><div class="l">EXPECTANCY/TRADE</div></div>
+      <div class="kpi"><div class="v" id="a_dd">$0</div><div class="l">MAX DRAWDOWN</div></div>
+      <div class="kpi"><div class="v" id="a_strk">–</div><div class="l">CURRENT STREAK</div></div>
+      <div class="kpi"><div class="v" id="a_n">0</div><div class="l">TRADES</div></div>
+    </div>
+    <div class="note">Validation gate: 30–60 days averaging $9–12/day per contract = green light. Under $6/day persistently = recalibrate before live.</div>
+  </div>
+  <div class="card"><h2>Daily P&amp;L</h2><canvas id="c_daily"></canvas></div>
+  <div class="card"><h2>Rolling 10-day average $/day <span class="note">(bands: $6 recalibrate · $9 harsh · $12 base)</span></h2><canvas id="c_roll"></canvas></div>
+  <div class="card"><h2>Trade P&amp;L distribution</h2><canvas id="c_hist"></canvas></div>
+  <div class="card"><h2>Breakdowns</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div><h3>BY DAY OF WEEK</h3><table id="dowtab"><thead><tr><th>Day</th><th>Trades</th><th>Win%</th><th>Net $</th></tr></thead><tbody></tbody></table></div>
+      <div><h3>BY DIRECTION</h3><table id="dirtab"><thead><tr><th>Side</th><th>Trades</th><th>Win%</th><th>Net $</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </div>
+  <div class="card"><h2>12-month projection from current equity <span class="note">(dashed = harsh costs, solid = base; dots = size-ups)</span></h2>
+    <canvas id="c_proj"></canvas>
+    <div id="projtxt" class="note"></div>
+  </div>
+  <div class="card"><h2>Timeframe reference (verified backtests — trade ONLY 2m)</h2>
+    <table><thead><tr><th>TF</th><th>$/day/contract</th><th>Years positive</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr class="now"><td>2 min</td><td>$12.07</td><td>5/5</td><td>TRADE THIS</td></tr>
+      <tr><td>5 min</td><td>$7.10</td><td>5/5</td><td>fallback only</td></tr>
+      <tr><td>15 min</td><td>$4.59</td><td>5/5</td><td>weak — no</td></tr>
+      <tr><td>30 min</td><td>$0.81</td><td>2/5</td><td>NO</td></tr>
+      <tr><td>60 min</td><td>&minus;$2.39</td><td>1/5</td><td>NO — loses</td></tr>
+    </tbody></table>
+  </div>
+</div>
+
+<!-- ================= LADDER ================= -->
+<div class="tab" id="ladder">
+  <div class="card">
+    <h2>Contract ladder — 1 MNQ to 10 NQ</h2>
+    <p class="note">Promote on close above threshold; demote immediately below. Highlighted = your tier now (auto).</p>
+    <table id="ladtab"><thead><tr>
+      <th>Size</th><th>Equity to trade it</th><th>Risk/trade</th><th>$/day harsh</th><th>$/day base</th><th>$/week base</th>
+    </tr></thead><tbody></tbody></table>
+  </div>
+</div>
+
+<!-- ================= TRADES ================= -->
+<div class="tab" id="trades">
+  <div class="card">
+    <h2>Add a trade</h2>
+    <div class="row">
+      <input type="date" id="t_date">
+      <select id="t_dir"><option>long</option><option>short</option></select>
+      <input type="number" id="t_entry" placeholder="entry" step="0.25" style="width:110px">
+      <input type="number" id="t_exit" placeholder="exit" step="0.25" style="width:110px">
+      <input type="number" id="t_qty" placeholder="contracts" value="1" style="width:90px">
+      <input type="number" id="t_fees" placeholder="fees $" value="1.50" step="0.01" style="width:90px">
+      <button class="act" onclick="addTrade()">Add</button>
+    </div>
+    <h3>Bulk import — rows: date,direction,entry,exit,contracts,fees</h3>
+    <div class="row"><textarea id="bulk" rows="3" style="flex:1" placeholder="2026-07-02,short,29849.75,29809.75,1,1.50"></textarea>
+      <button class="act gray" onclick="bulkImport()">Import</button></div>
+    <div class="row">
+      <button class="act gray" onclick="exportCSV()">Export CSV (backup weekly!)</button>
+      <button class="act gray" onclick="clearAllTrades()">Clear all</button>
+    </div>
+  </div>
+  <div class="card"><h2>Trade log</h2>
+    <table id="ttab"><thead><tr><th>Date</th><th>Dir</th><th>Entry</th><th>Exit</th><th>Qty</th><th>Pts</th><th>P&amp;L $</th><th>Equity after</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+</div>
+
+<!-- ================= CODE ================= -->
+<div class="tab" id="code">
+  <div class="card">
+    <h2>Pine Script v2.3 (current)</h2>
+    <div class="row"><button class="act" onclick="copyCode()">Copy to clipboard</button></div>
+    <pre id="pinecode"></pre>
+  </div>
+</div>
+
+<!-- ================= RULES ================= -->
+<div class="tab" id="rules">
+  <div class="card">
+    <h2>Daily checklist</h2>
+    <ul>
+      <li>Chart = MNQ1!, <b>2-minute</b>, Extended Hours ON, strategy v2.3 loaded</li>
+      <li>Window 9:36–11:30am ET &middot; zero-trade days are normal (ADX gate)</li>
+      <li>Flat by 3:56pm &middot; never in a trade 4–6pm &middot; never overnight/weekends</li>
+      <li>40-pt stop / 40-pt target / 3h time exit — never override</li>
+      <li>Log every fill same day &middot; size ONLY per the Ladder tab</li>
+      <li>Cockpit logs <b>system fills only</b> — manual trades go to trade_journal.csv, never in here</li>
+    </ul>
+    <h2 style="margin-top:14px">The three ways this dies</h2>
+    <ul>
+      <li><b>Overriding the system</b> — skipping signals, moving stops, revenge adds</li>
+      <li><b>Wrong chart settings</b> — 30m/1h are proven losers for these rules</li>
+      <li><b>Skipping demotions</b> — oversized through a drawdown = floor breach</li>
+    </ul>
+    <h2 style="margin-top:14px">Withdrawals</h2>
+    <ul><li>None until equity &ge; $4,000; then 50% of monthly profit at month-end; never below tier threshold + $1,000.</li></ul>
+  </div>
+</div>
+</main>
+
+<script>
+const BASE=12.07, HARSH=9.17, RISK1=81.5, DAYS_MO=21;
+
+// ================= data model v2 (sync-ready) =================
+// trades: {id, date, dir, entry, exit, qty, fees, ts}; adj: {id, amount, ts}
+// tomb: ids deleted on any device (so a delete can't be resurrected by a merge)
+function migrate(d){
+  d = d || {};
+  if(d.v === 2){
+    d.trades = Array.isArray(d.trades)? d.trades:[]; d.adj = Array.isArray(d.adj)? d.adj:[];
+    d.tomb = Array.isArray(d.tomb)? d.tomb:[];
+    if(d.start === undefined) d.start = 2000;
+    if(d.startTs === undefined) d.startTs = 0;
+    return d;
+  }
+  const out = { v:2, start: d.start!==undefined ? d.start : (d.eq!==undefined ? d.eq : 2000),
+                startTs: d.startTs||0, trades:[], adj:[], tomb:[] };
+  (Array.isArray(d.trades)? d.trades:[]).forEach((t,i)=>{
+    out.trades.push({ ...t, id: t.id || ["t",t.date,t.dir,t.entry,t.exit,t.qty,t.fees,i].join("|"), ts: t.ts||0 }); });
+  (Array.isArray(d.adj)? d.adj:[]).forEach((x,i)=>{
+    if(typeof x === "number") out.adj.push({ id:["a",i,x].join("|"), amount:x, ts:0 });
+    else out.adj.push({ ...x, id: x.id || ["a",i,x.amount].join("|") }); });
+  return out;
+}
+let DB = migrate(JSON.parse(localStorage.getItem("mnq_cockpit")||'{}'));
+sortTrades();
+function sortTrades(){ DB.trades.sort((x,y)=> x.date===y.date ? (x.ts||0)-(y.ts||0) : (x.date<y.date?-1:1)); }
+function persist(){ localStorage.setItem("mnq_cockpit", JSON.stringify(DB)); }
+function touched(){ sortTrades(); persist(); render(); scheduleSync(); }
+function newId(p){ return p+"_"+Date.now()+"_"+Math.random().toString(36).slice(2,7); }
+
+function pnl(t){ const d=t.dir==="long"?1:-1; return (t.exit-t.entry)*d*2*t.qty - t.fees; }
+function netPnl(){ return DB.trades.reduce((a,t)=>a+pnl(t),0); }
+function adjSum(){ return DB.adj.reduce((a,x)=>a+x.amount,0); }
+function equity(){ return DB.start + netPnl() + adjSum(); }
+function thr(k){ return k<=1?2000:2600+(k-2)*2500; }
+function tierOf(eq){ if(eq<2600) return 1; return Math.min(100, 2+Math.floor((eq-2600)/2500)); }
+function sizeName(k){ if(k<10) return k+" MNQ"; const nq=Math.floor(k/10), m=k%10;
+  return nq+" NQ"+(m? "+"+m+" MNQ":""); }
+const fmt$=v=>"$"+Math.round(v).toLocaleString();
+
+// ================= gist sync =================
+const SYNCKEY="mnq_cockpit_sync", GISTFILE="mnq_cockpit_data.json";
+let SYNC = JSON.parse(localStorage.getItem(SYNCKEY)||"{}");
+let syncTimer=null, syncBusy=false, lastPullAt=0;
+function syncConfigured(){ return !!(SYNC.token && SYNC.gistId); }
+function saveSync(){ localStorage.setItem(SYNCKEY, JSON.stringify(SYNC)); }
+function setChip(cls,msg){ const c=document.getElementById("syncchip"); c.className=cls; c.textContent=msg; }
+function goDash(){ document.querySelector('nav button[data-t="dash"]').click();
+  document.getElementById("synccard").scrollIntoView({behavior:"smooth"}); }
+
+async function gh(method, url, body){
+  const r = await fetch(url, { method,
+    headers: { "Authorization":"Bearer "+SYNC.token, "Accept":"application/vnd.github+json",
+               ...(body? {"Content-Type":"application/json"}:{}) },
+    body: body? JSON.stringify(body):undefined });
+  if(!r.ok) throw new Error("GitHub "+r.status+(r.status===401?" — bad token?":""));
+  return r.json();
+}
+function mergeDB(a,b){
+  const tomb = new Set([...(a.tomb||[]), ...(b.tomb||[])]);
+  const tm = new Map();
+  [...(a.trades||[]), ...(b.trades||[])].forEach(t=>{ if(!tomb.has(t.id) && !tm.has(t.id)) tm.set(t.id,t); });
+  const trades=[...tm.values()].sort((x,y)=> x.date===y.date ? (x.ts||0)-(y.ts||0) : (x.date<y.date?-1:1));
+  const am = new Map();
+  [...(a.adj||[]), ...(b.adj||[])].forEach(x=>{ if(!tomb.has(x.id) && !am.has(x.id)) am.set(x.id,x); });
+  const newer = (a.startTs||0) >= (b.startTs||0) ? a : b;
+  return { v:2, start:newer.start, startTs:newer.startTs||0,
+           trades, adj:[...am.values()], tomb:[...tomb] };
+}
+async function syncNow(){
+  if(!syncConfigured() || syncBusy) return;
+  syncBusy=true; setChip("busy","syncing…");
+  try{
+    const g = await gh("GET","https://api.github.com/gists/"+SYNC.gistId);
+    const f = g.files && g.files[GISTFILE];
+    let remoteRaw = {};
+    if(f) remoteRaw = f.truncated ? await (await fetch(f.raw_url)).json() : JSON.parse(f.content||"{}");
+    const remote = migrate(remoteRaw);
+    const merged = mergeDB(DB, remote);
+    const mergedStr = JSON.stringify(merged);
+    if(mergedStr !== JSON.stringify(DB)){ DB = merged; persist(); render(); }
+    if(mergedStr !== JSON.stringify(remote)){
+      await gh("PATCH","https://api.github.com/gists/"+SYNC.gistId, {files:{[GISTFILE]:{content:mergedStr}}});
+    }
+    lastPullAt = Date.now();
+    setChip("ok","✓ synced "+new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}));
+    document.getElementById("s_stat").textContent = "Connected — shared ledger gist "+SYNC.gistId.slice(0,8)+"… Log trades on either device.";
+  }catch(e){
+    setChip("err", navigator.onLine ? "sync error" : "offline — will retry");
+  }
+  syncBusy=false;
+}
+function scheduleSync(){ if(!syncConfigured()) return; clearTimeout(syncTimer); syncTimer=setTimeout(syncNow,1500); }
+function maybePull(){ if(syncConfigured() && !syncBusy && Date.now()-lastPullAt>15000) syncNow(); }
+async function connectSync(){
+  const tok = document.getElementById("s_token").value.trim();
+  if(!tok){ alert("Paste your GitHub token first (see the note below the box)."); return; }
+  SYNC = { token: tok };
+  setChip("busy","connecting…");
+  try{
+    const list = await gh("GET","https://api.github.com/gists?per_page=100");
+    const hit = list.find(g=>g.files && g.files[GISTFILE]);
+    if(hit) SYNC.gistId = hit.id;
+    else{
+      const g = await gh("POST","https://api.github.com/gists",
+        { description:"MNQ Cockpit ledger (auto-sync)", public:false,
+          files:{ [GISTFILE]: { content: JSON.stringify(DB) } } });
+      SYNC.gistId = g.id;
+    }
+    saveSync();
+    document.getElementById("s_token").value="";
+    await syncNow();
+  }catch(e){
+    SYNC={}; saveSync(); setChip("err","sync off");
+    document.getElementById("s_stat").textContent = "Couldn't connect: "+e.message+" — check the token has the gist scope.";
+  }
+}
+function disconnectSync(){
+  if(!confirm("Turn off sync on this device? Your data stays; it just stops syncing.")) return;
+  SYNC={}; saveSync(); setChip("","sync off");
+  document.getElementById("s_stat").textContent = "Sync off — data lives on this device only.";
+}
+
+// ================= backup =================
+function exportJSON(){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(DB,null,1)],{type:"application/json"}));
+  a.download="mnq_cockpit_backup.json"; a.click();
+}
+function importJSON(inp){
+  const f=inp.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{ try{
+      const n=DB.trades.length, na=DB.adj.length;
+      DB = mergeDB(DB, migrate(JSON.parse(r.result)));
+      touched();
+      alert("Imported — "+(DB.trades.length-n)+" new trades, "+(DB.adj.length-na)+" new cash movements merged in.");
+    }catch(e){ alert("That file didn't parse as a Cockpit backup: "+e.message); }
+    inp.value=""; };
+  r.readAsText(f);
+}
+
+// ================= canvas helpers =================
+function cv(id){ const c=document.getElementById(id), r=window.devicePixelRatio||1;
+  const w=c.clientWidth||1000, h=c.clientHeight||200;
+  c.width=w*r; c.height=h*r; const x=c.getContext("2d"); x.scale(r,r);
+  x.clearRect(0,0,w,h); return {x,w,h}; }
+function axes(x,w,h,lo,hi,fmt){
+  x.strokeStyle="#252b3a"; x.fillStyle="#8a94ab"; x.font="10px -apple-system";
+  for(let i=0;i<=3;i++){ const v=lo+(hi-lo)*i/3, y=h-14-(h-24)*(i/3);
+    x.beginPath(); x.moveTo(46,y); x.lineTo(w-6,y); x.stroke();
+    x.textAlign="right"; x.fillText(fmt(v),42,y+3); } }
+function drawLine(id, series, opts={}){
+  if(series.length<2){ blank(id); return; }
+  const {x,w,h}=cv(id);
+  let lo=Math.min(...series), hi=Math.max(...series);
+  if(opts.zero){ lo=Math.min(lo,0); } if(lo===hi){ lo-=1; hi+=1; }
+  const pad=(hi-lo)*0.08; lo-=pad; hi+=pad;
+  axes(x,w,h,lo,hi,v=>fmt$(v));
+  const X=i=>46+(w-56)*(i/(series.length-1)), Y=v=>h-14-(h-24)*((v-lo)/(hi-lo));
+  if(opts.ref!==undefined){ x.strokeStyle="#8a94ab"; x.setLineDash([4,4]);
+    x.beginPath(); x.moveTo(46,Y(opts.ref)); x.lineTo(w-6,Y(opts.ref)); x.stroke(); x.setLineDash([]); }
+  x.strokeStyle=opts.color||"#26a69a"; x.lineWidth=2; x.beginPath();
+  series.forEach((v,i)=>{ i? x.lineTo(X(i),Y(v)) : x.moveTo(X(i),Y(v)); }); x.stroke();
+  return {X,Y};
+}
+function blank(id){ const {x,w,h}=cv(id); x.fillStyle="#8a94ab"; x.textAlign="center";
+  x.fillText("log trades to populate", w/2, h/2); }
+function drawBars(id, labels, vals){
+  if(!vals.length){ blank(id); return; }
+  const {x,w,h}=cv(id);
+  let lo=Math.min(0,...vals), hi=Math.max(0,...vals); if(lo===hi){hi=lo+1;}
+  const pad=(hi-lo)*0.1; lo-=pad; hi+=pad;
+  axes(x,w,h,lo,hi,v=>fmt$(v));
+  const bw=Math.max(2,(w-60)/vals.length-2), Y=v=>h-14-(h-24)*((v-lo)/(hi-lo));
+  vals.forEach((v,i)=>{ x.fillStyle=v>=0?"#26a69a":"#ef5350";
+    const xx=46+i*((w-60)/vals.length);
+    x.fillRect(xx, Math.min(Y(0),Y(v)), bw, Math.max(1,Math.abs(Y(v)-Y(0)))); });
+}
+function drawHist(id, vals){
+  if(!vals.length){ blank(id); return; }
+  const {x,w,h}=cv(id);
+  const lo=Math.min(...vals), hi=Math.max(...vals), nb=Math.min(21,Math.max(7,Math.ceil(vals.length/3)));
+  const step=(hi-lo)/nb||1, bins=new Array(nb).fill(0);
+  vals.forEach(v=>{ bins[Math.min(nb-1,Math.floor((v-lo)/step))]++; });
+  const mx=Math.max(...bins);
+  const bw=(w-60)/nb-2;
+  bins.forEach((b,i)=>{ const mid=lo+step*(i+0.5);
+    x.fillStyle= mid>=0? "#26a69a":"#ef5350";
+    const bh=(h-30)*(b/mx);
+    x.fillRect(46+i*((w-60)/nb), h-16-bh, bw, bh); });
+  x.fillStyle="#8a94ab"; x.font="10px -apple-system"; x.textAlign="center";
+  x.fillText(fmt$(lo),60,h-4); x.fillText("$0 →",w/2,h-4); x.fillText(fmt$(hi),w-40,h-4);
+}
+
+// ================= renders =================
+function renderDash(){
+  const eq=equity(), k=tierOf(eq);
+  document.getElementById("startbal").value=DB.start;
+  const H=document.getElementById("hdr_eq");
+  H.textContent=fmt$(eq); H.className = eq>=DB.start? "pos":"neg";
+  const set=(id,v,cls)=>{ const e=document.getElementById(id); e.textContent=v; if(cls!==undefined) e.className="v "+cls; };
+  set("d_eq",fmt$(eq), eq>=DB.start?"pos":"neg");
+  set("d_pos",sizeName(k));
+  set("d_next", k>=100 ? "AT CAP" : fmt$(thr(Math.min(100,k+1))));
+  set("d_down", k<=1 ? "—" : fmt$(thr(k)));
+  set("d_exp","$"+Math.round(HARSH*k)+"–$"+Math.round(BASE*k));
+  set("d_risk",fmt$(RISK1*k));
+  const ok = eq - RISK1*k >= 500;
+  set("d_floor", ok? "OK":"SIZE DOWN", ok?"pos":"neg");
+  const wd=DB.adj.filter(x=>x.amount<0).reduce((a,b)=>a+b.amount,0), dp=DB.adj.filter(x=>x.amount>0).reduce((a,b)=>a+b.amount,0);
+  document.getElementById("adjsum").textContent=`deposits $${dp.toLocaleString()} · withdrawn $${Math.abs(wd).toLocaleString()}`;
+  // equity curve
+  let run=DB.start+adjSum(); const series=[DB.start+adjSum()];
+  DB.trades.forEach(t=>{ run+=pnl(t); series.push(run); });
+  drawLine("c_eq", series, {color:"#26a69a", ref:DB.start});
+}
+function renderAnalytics(){
+  const ps=DB.trades.map(pnl), net=ps.reduce((a,b)=>a+b,0);
+  const byday={}; DB.trades.forEach((t,i)=>{ byday[t.date]=(byday[t.date]||0)+ps[i]; });
+  const dayKeys=Object.keys(byday).sort(), nd=dayKeys.length||1;
+  const wins=ps.filter(p=>p>0), losses=ps.filter(p=>p<=0);
+  let eqr=0,pk=0,dd=0; dayKeys.forEach(d=>{ eqr+=byday[d]; pk=Math.max(pk,eqr); dd=Math.min(dd,eqr-pk); });
+  let strk=0; for(let i=ps.length-1;i>=0;i--){ if(strk===0) strk=ps[i]>0?1:-1;
+    else if(strk>0&&ps[i]>0) strk++; else if(strk<0&&ps[i]<=0) strk--; else break; }
+  const set=(id,v,cls)=>{ const e=document.getElementById(id); e.textContent=v; if(cls!==undefined) e.className="v "+cls; };
+  set("a_net",fmt$(net), net>=0?"pos":"neg");
+  const perday=net/nd;
+  set("a_day","$"+perday.toFixed(2), perday>=9?"pos":(perday>=6?"amb":"neg"));
+  set("a_win", ps.length?(100*wins.length/ps.length).toFixed(0)+"%":"–");
+  set("a_pf", losses.length&&wins.length?(wins.reduce((a,b)=>a+b,0)/Math.abs(losses.reduce((a,b)=>a+b,0))).toFixed(2):"–");
+  set("a_expc", ps.length? "$"+(net/ps.length).toFixed(2):"–", ps.length&&net/ps.length>=0?"pos":"neg");
+  set("a_dd",fmt$(dd), dd<-1500?"neg":"");
+  set("a_strk", strk===0?"–":(strk>0? strk+" W":Math.abs(strk)+" L"), strk>0?"pos":(strk<0?"neg":""));
+  set("a_n", ps.length);
+  drawBars("c_daily", dayKeys, dayKeys.map(d=>byday[d]));
+  // rolling 10-day
+  if(dayKeys.length>=3){
+    const dv=dayKeys.map(d=>byday[d]); const roll=[];
+    for(let i=0;i<dv.length;i++){ const s=dv.slice(Math.max(0,i-9),i+1);
+      roll.push(s.reduce((a,b)=>a+b,0)/s.length); }
+    const {X,Y}=drawLine("c_roll", roll, {color:"#2962ff", zero:true}) || {};
+    if(Y){ const c=document.getElementById("c_roll").getContext("2d");
+      [[6,"#ef5350"],[9,"#ffb74d"],[12,"#26a69a"]].forEach(([lvl,col])=>{
+        c.strokeStyle=col; c.setLineDash([3,4]); c.beginPath();
+        c.moveTo(46,Y(lvl)); c.lineTo(document.getElementById("c_roll").clientWidth-6,Y(lvl)); c.stroke(); c.setLineDash([]); }); }
+  } else blank("c_roll");
+  drawHist("c_hist", ps);
+  // breakdowns
+  const dows=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"], agg={};
+  DB.trades.forEach((t,i)=>{ const d=dows[new Date(t.date+"T12:00").getDay()];
+    (agg[d]=agg[d]||[]).push(ps[i]); });
+  const dtb=document.querySelector("#dowtab tbody"); dtb.innerHTML="";
+  ["Mon","Tue","Wed","Thu","Fri"].forEach(d=>{ const a=agg[d]||[]; if(!a.length) return;
+    const n=a.reduce((x,y)=>x+y,0);
+    dtb.insertAdjacentHTML("beforeend",`<tr><td>${d}</td><td>${a.length}</td>
+      <td>${(100*a.filter(p=>p>0).length/a.length).toFixed(0)}%</td>
+      <td class="${n>=0?'pos':'neg'}">${n.toFixed(0)}</td></tr>`); });
+  const dirtb=document.querySelector("#dirtab tbody"); dirtb.innerHTML="";
+  ["long","short"].forEach(dr=>{ const a=DB.trades.filter(t=>t.dir===dr).map(pnl); if(!a.length) return;
+    const n=a.reduce((x,y)=>x+y,0);
+    dirtb.insertAdjacentHTML("beforeend",`<tr><td>${dr}</td><td>${a.length}</td>
+      <td>${(100*a.filter(p=>p>0).length/a.length).toFixed(0)}%</td>
+      <td class="${n>=0?'pos':'neg'}">${n.toFixed(0)}</td></tr>`); });
+  renderProjection();
+}
+let PROJ=null, PROJ_HOVER=null;
+function renderProjection(){
+  const mo=12, eq0=equity(), N=mo*DAYS_MO;
+  function project(rate){ let eq=eq0; const p=[eq];
+    for(let i=0;i<N;i++){ eq+=tierOf(eq)*rate; p.push(eq); } return p; }
+  PROJ={ base:project(BASE), harsh:project(HARSH), eq0, N, mo };
+  drawProj();
+  const b=PROJ.base, hp=PROJ.harsh, k0=tierOf(eq0);
+  document.getElementById("projtxt").innerHTML =
+    `From ${fmt$(eq0)} at ${sizeName(k0)}: base-rate path reaches <b>${fmt$(b[6*DAYS_MO])}</b> in 6 months and <b>${fmt$(b[N])}</b> in 12; `+
+    `harsh-cost path: ${fmt$(hp[6*DAYS_MO])} / ${fmt$(hp[N])}. Orange dots = contract additions on the base path. `+
+    `<b>Hover or touch the chart</b> for exact numbers at any point. Map, not a promise.`;
+}
+function drawProj(){
+  if(!PROJ) return;
+  const {base,harsh,eq0,N,mo}=PROJ;
+  const all=[...base,...harsh];
+  const lo=Math.min(...all)*0.95, hi=Math.max(...all)*1.05;
+  const {x,w,h}=cv("c_proj");
+  axes(x,w,h,lo,hi,v=>fmt$(v));
+  const X=i=>46+(w-56)*(i/N), Y=v=>h-14-(h-24)*((v-lo)/(hi-lo));
+  [[harsh,"#8a94ab",true],[base,"#26a69a",false]].forEach(([p,col,dash])=>{
+    x.strokeStyle=col; x.lineWidth=2; if(dash) x.setLineDash([5,4]);
+    x.beginPath(); p.forEach((v,i)=>{ i? x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v)); });
+    x.stroke(); x.setLineDash([]); });
+  let k=tierOf(eq0);
+  base.forEach((v,i)=>{ const nk=tierOf(v); if(nk>k){ k=nk;
+    x.fillStyle="#ffb74d"; x.beginPath(); x.arc(X(i),Y(v),4,0,7); x.fill(); } });
+  x.fillStyle="#8a94ab"; x.font="10px -apple-system"; x.textAlign="center";
+  for(let m=0;m<=mo;m+=3) x.fillText(m+"mo", X(m*DAYS_MO), h-2);
+  if(PROJ_HOVER!==null){
+    const i=PROJ_HOVER, bx=X(i);
+    x.strokeStyle="#dfe6f3"; x.setLineDash([3,3]);
+    x.beginPath(); x.moveTo(bx,8); x.lineTo(bx,h-14); x.stroke(); x.setLineDash([]);
+    [[base[i],"#26a69a"],[harsh[i],"#8a94ab"]].forEach(([v,c])=>{
+      x.fillStyle=c; x.beginPath(); x.arc(bx,Y(v),4,0,7); x.fill(); });
+    const lines=[
+      (i/DAYS_MO).toFixed(1)+" months in  ("+i+" trading days)",
+      "base:  "+fmt$(base[i])+"  → "+sizeName(tierOf(base[i])),
+      "harsh: "+fmt$(harsh[i])+"  → "+sizeName(tierOf(harsh[i])),
+      "expected $/day here: $"+Math.round(HARSH*tierOf(harsh[i]))+"–$"+Math.round(BASE*tierOf(base[i]))];
+    x.font="12px -apple-system";
+    const tw=Math.max(...lines.map(t=>x.measureText(t).width))+16;
+    const th=lines.length*17+12;
+    let tx=bx+12; if(tx+tw>w-4) tx=bx-12-tw;
+    const ty=10;
+    x.fillStyle="rgba(11,14,20,.95)"; x.strokeStyle="#2962ff"; x.lineWidth=1;
+    x.beginPath();
+    if(x.roundRect) x.roundRect(tx,ty,tw,th,6); else x.rect(tx,ty,tw,th);
+    x.fill(); x.stroke();
+    x.textAlign="left";
+    lines.forEach((t,li)=>{ x.fillStyle= li===1? "#26a69a" : li===2? "#a9b3c9":"#dfe6f3";
+      x.fillText(t, tx+8, ty+19+li*17); });
+  }
+}
+function buildLadder(){ const tb=document.querySelector("#ladtab tbody"); tb.innerHTML="";
+  const k_now=tierOf(equity());
+  const LKS=[1,2,3,4,5,6,7,8,9,10,20,30,40,50,60,70,80,90,100];
+  let hi=1; LKS.forEach(k=>{ if(k<=k_now) hi=k; });
+  LKS.forEach(k=>{ const tr=document.createElement("tr");
+    if(k===hi) tr.className="now";
+    tr.innerHTML=`<td>${sizeName(k)}</td><td>${fmt$(thr(k))}</td>
+      <td>${fmt$(RISK1*k)}</td><td>${fmt$(HARSH*k)}</td><td>${fmt$(BASE*k)}</td><td>${fmt$(BASE*k*5)}</td>`;
+    tb.appendChild(tr); });
+}
+function setStart(){ DB.start=parseFloat(document.getElementById("startbal").value)||2000;
+  DB.startTs=Date.now(); touched(); }
+function addAdj(sign){ const v=parseFloat(document.getElementById("adjamt").value);
+  if(!v||v<=0){ alert("enter an amount"); return; }
+  DB.adj.push({id:newId("a"), amount:sign*v, ts:Date.now()}); document.getElementById("adjamt").value=""; touched(); }
+function addTrade(){
+  const t={ id:newId("t"), ts:Date.now(),
+    date:document.getElementById("t_date").value||new Date().toISOString().slice(0,10),
+    dir:document.getElementById("t_dir").value,
+    entry:parseFloat(document.getElementById("t_entry").value),
+    exit:parseFloat(document.getElementById("t_exit").value),
+    qty:parseInt(document.getElementById("t_qty").value)||1,
+    fees:parseFloat(document.getElementById("t_fees").value)||1.5 };
+  if(isNaN(t.entry)||isNaN(t.exit)){ alert("entry/exit required"); return; }
+  DB.trades.push(t); touched();
+}
+function bulkImport(){
+  const lines=document.getElementById("bulk").value.split("\n"); let n=0;
+  lines.forEach(L=>{ const p=L.split(",").map(s=>s.trim()); if(p.length<4) return;
+    const t={id:newId("t"), ts:Date.now(), date:p[0], dir:p[1].toLowerCase().startsWith("s")?"short":"long",
+      entry:parseFloat(p[2]), exit:parseFloat(p[3]), qty:parseInt(p[4])||1, fees:parseFloat(p[5])||1.5};
+    if(!isNaN(t.entry)&&!isNaN(t.exit)){ DB.trades.push(t); n++; } });
+  touched(); alert(n+" trades imported");
+}
+function delTrade(i){ DB.tomb.push(DB.trades[i].id); DB.trades.splice(i,1); touched(); }
+function clearAllTrades(){
+  if(!confirm("Delete ALL logged trades? (Deletes sync to the other device too.)")) return;
+  DB.trades.forEach(t=>DB.tomb.push(t.id)); DB.trades=[]; touched();
+}
+function exportCSV(){
+  const rows=["date,direction,entry,exit,contracts,fees,pnl"];
+  DB.trades.forEach(t=>rows.push([t.date,t.dir,t.entry,t.exit,t.qty,t.fees,pnl(t).toFixed(2)].join(",")));
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([rows.join("\n")],{type:"text/csv"}));
+  a.download="mnq_trades.csv"; a.click();
+}
+function renderTrades(){
+  const tb=document.querySelector("#ttab tbody"); tb.innerHTML="";
+  let run=DB.start+adjSum();
+  const eqAfter=DB.trades.map(t=>{ run+=pnl(t); return run; });
+  DB.trades.slice().reverse().forEach((t,ri)=>{
+    const i=DB.trades.length-1-ri, p=pnl(t), d=t.dir==="long"?1:-1;
+    tb.insertAdjacentHTML("beforeend",`<tr><td>${t.date}</td><td>${t.dir}</td><td>${t.entry}</td><td>${t.exit}</td>
+      <td>${t.qty}</td><td>${((t.exit-t.entry)*d).toFixed(2)}</td>
+      <td class="${p>=0?'pos':'neg'}">${p.toFixed(2)}</td>
+      <td>${fmt$(eqAfter[i])}</td>
+      <td><button class="act gray" onclick="delTrade(${i})">x</button></td></tr>`); });
+}
+
+const PINE = `//@version=6
+// ============ MNQ OPENING MOMENTUM — V2.3 ============
+strategy("MNQ Opening Momentum v2.3",
+     overlay = true, initial_capital = 2000,
+     default_qty_type = strategy.fixed, default_qty_value = 1,
+     commission_type = strategy.commission.cash_per_contract, commission_value = 0.75,
+     slippage = 1, pyramiding = 0, margin_long = 1, margin_short = 1)
+qty        = input.int(1,   "Contracts (ladder tier)", minval = 1)
+nBars      = input.int(10,  "Breakout lookback (bars)", minval = 2)
+adxMin     = input.float(25.0, "ADX minimum")
+stopPts    = input.float(40.0, "Stop (NQ points)")
+tgtPts     = input.float(40.0, "Target (NQ points)")
+maxBars    = input.int(90,  "Max bars in trade")
+allowShort = input.bool(true, "Allow shorts")
+TZ = "America/New_York"
+tmin = hour(time, TZ) * 60 + minute(time, TZ)
+inWindow = tmin >= 574 and tmin <= 688
+flatTime = tmin >= 956
+[diPlus, diMinus, adxVal] = ta.dmi(14, 14)
+hh = ta.highest(high, nBars)[1]
+ll = ta.lowest(low,  nBars)[1]
+longSig  = inWindow and close > hh and adxVal > adxMin
+shortSig = inWindow and close < ll and adxVal > adxMin and allowShort
+if longSig and strategy.position_size == 0 and not flatTime
+    strategy.entry("Long", strategy.long, qty = qty)
+    alert('{"ev":"entry","dir":"long","px":' + str.tostring(close) + ',"qty":' + str.tostring(qty) + '}', alert.freq_once_per_bar_close)
+if shortSig and strategy.position_size == 0 and not flatTime
+    strategy.entry("Short", strategy.short, qty = qty)
+    alert('{"ev":"entry","dir":"short","px":' + str.tostring(close) + ',"qty":' + str.tostring(qty) + '}', alert.freq_once_per_bar_close)
+if strategy.position_size != 0
+    strategy.exit("Bracket", loss = stopPts / syminfo.mintick, profit = tgtPts / syminfo.mintick)
+var int entryBar = na
+if strategy.position_size != 0 and na(entryBar)
+    entryBar := bar_index
+if strategy.position_size == 0
+    entryBar := na
+if not na(entryBar) and bar_index - entryBar >= maxBars
+    strategy.close_all(comment = "time exit")
+    entryBar := na
+if flatTime
+    strategy.close_all(comment = "EOD flat")
+    strategy.cancel_all()
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    alert('{"ev":"exit","closedtrades":' + str.tostring(strategy.closedtrades) + ',"netprofit":' + str.tostring(strategy.netprofit) + '}', alert.freq_once_per_bar_close)
+var int sigCount = 0
+if longSig or shortSig
+    sigCount += 1
+plotshape(longSig,  "long sig",  shape.triangleup,   location.belowbar, color.new(color.green, 0), size = size.tiny)
+plotshape(shortSig, "short sig", shape.triangledown, location.abovebar, color.new(color.red, 0),   size = size.tiny)
+plot(inWindow ? hh : na, "Breakout high", color.new(color.green, 50), 1, plot.style_linebr)
+plot(inWindow ? ll : na, "Breakout low",  color.new(color.red, 50),   1, plot.style_linebr)
+bgcolor(inWindow ? color.new(color.blue, 96) : na)
+var table tb = table.new(position.bottom_right, 1, 3)
+if barstate.islast
+    table.cell(tb, 0, 0, "signals: " + str.tostring(sigCount), text_color = color.white, bgcolor = color.new(color.blue, 20))
+    table.cell(tb, 0, 1, "closed trades: " + str.tostring(strategy.closedtrades), text_color = color.white, bgcolor = color.new(color.blue, 20))
+    bool gateOpen = adxVal > adxMin
+    table.cell(tb, 0, 2, "ADX " + str.tostring(math.round(adxVal, 1)) + (gateOpen ? "  GATE OPEN" : "  gate closed"),
+         text_color = color.white, bgcolor = gateOpen ? color.new(color.green, 20) : color.new(color.red, 40))`;
+document.getElementById("pinecode").textContent = PINE;
+function copyCode(){ navigator.clipboard.writeText(PINE).then(()=>alert("Pine v2.3 copied")); }
+
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on"));
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on"); document.getElementById(b.dataset.t).classList.add("on");
+  render(); });
+function render(){ renderDash(); renderAnalytics(); buildLadder(); renderTrades(); persist(); }
+window.addEventListener("resize", render);
+const projC=document.getElementById("c_proj");
+function projPoint(clientX){
+  if(!PROJ) return;
+  const r=projC.getBoundingClientRect();
+  let i=Math.round((clientX-r.left-46)/(r.width-56)*PROJ.N);
+  PROJ_HOVER=Math.max(0,Math.min(PROJ.N,i));
+  drawProj(); }
+projC.addEventListener("mousemove", e=>projPoint(e.clientX));
+projC.addEventListener("mouseleave", ()=>{ PROJ_HOVER=null; drawProj(); });
+projC.addEventListener("touchstart", e=>projPoint(e.touches[0].clientX), {passive:true});
+projC.addEventListener("touchmove",  e=>projPoint(e.touches[0].clientX), {passive:true});
+projC.addEventListener("touchend",   ()=>setTimeout(()=>{ PROJ_HOVER=null; drawProj(); }, 1200));
+document.getElementById("t_date").value=new Date().toISOString().slice(0,10);
+render();
+
+// sync wiring: pull on open / refocus / back-online, push shortly after any edit
+if(syncConfigured()) syncNow();
+window.addEventListener("online", ()=>syncNow());
+window.addEventListener("focus", maybePull);
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) maybePull(); });
+if("serviceWorker" in navigator && location.protocol.indexOf("http")===0)
+  navigator.serviceWorker.register("./sw.js").catch(()=>{});
+</script>
+</body>
+</html>
