@@ -206,7 +206,17 @@
       on this device only, never synced. Free tier = 25 requests/day, so the app caches hard: quotes
       refresh daily, dividend histories weekly.</div>
   </div>
-  <div class="card"><h2>Add a lot <span class="note">(buys; use negative shares for sells)</span></h2>
+  <div class="card"><h2>Auto-import positions <span class="note">(M1 Finance / brokerage activity CSV)</span></h2>
+    <div class="row">
+      <button class="act" onclick="document.getElementById('m1file').click()">Import brokerage activity (CSV)</button>
+      <input type="file" id="m1file" accept=".csv" style="display:none" onchange="importM1(this)">
+    </div>
+    <div class="note">M1: log in on the web &rarr; account &rarr; Activity &rarr; download CSV. Drop it here and
+      every buy, sell, and dividend becomes data automatically — positions, average costs, and received
+      dividends all reconcile themselves, and re-importing never duplicates. Works with most brokerages'
+      activity/transactions exports, not just M1.</div>
+  </div>
+  <div class="card"><h2>Add a lot <span class="note">(manual option; negative shares for sells)</span></h2>
     <div class="row">
       <div><label class="f">TICKER</label><input id="l_tick" placeholder="AAPL" style="width:100px;text-transform:uppercase"></div>
       <div><label class="f">SHARES</label><input type="number" id="l_sh" step="0.0001" style="width:110px"></div>
@@ -512,6 +522,69 @@ function importTV(inp){
     }
   }catch(e){ alert("Import failed: "+e.message); }
   inp.value=""; };
+  r.readAsText(f);
+}
+
+// ================= brokerage activity import (M1-style) =================
+function normDate(s){
+  s=(s||"").trim();
+  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return m[1]+"-"+m[2]+"-"+m[3];
+  m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(m) return m[3]+"-"+m[1].padStart(2,"0")+"-"+m[2].padStart(2,"0");
+  return null;
+}
+function parseM1(text){
+  const lines=text.split(/\r?\n/).filter(l=>l.trim());
+  const hi=lines.findIndex(l=>/date/i.test(l) && /(symbol|ticker)/i.test(l));
+  if(hi<0) throw new Error("No header row with Date + Symbol/Ticker columns found.");
+  const hdr=parseCSVLine(lines[hi]).map(h=>h.toLowerCase());
+  const col=names=>{ for(const n of names){ const i=hdr.findIndex(h=>h.includes(n)); if(i>=0) return i; } return -1; };
+  const cDate=col(["date"]), cSym=col(["symbol","ticker"]),
+        cType=col(["transaction type","activity type","type","action","description"]),
+        cQty=col(["quantity","shares","qty"]), cPx=col(["price"]), cAmt=col(["amount","value","total"]);
+  if(cDate<0||cSym<0||cType<0) throw new Error("Missing Date / Symbol / Type columns.");
+  const lots=[], divs=[]; let skipped=0;
+  for(let i=hi+1;i<lines.length;i++){
+    const c=parseCSVLine(lines[i]); if(c.length<3) continue;
+    const date=normDate(c[cDate]); if(!date){ skipped++; continue; }
+    const sym=(c[cSym]||"").trim().toUpperCase().replace(/[^A-Z.]/g,"");
+    const typ=(c[cType]||"").toLowerCase();
+    const qty=cQty>=0? Math.abs(parseFloat((c[cQty]||"").replace(/,/g,"")))||0 : 0;
+    let px=cPx>=0? Math.abs(parseFloat((c[cPx]||"").replace(/[$,]/g,"")))||0 : 0;
+    const amt=cAmt>=0? Math.abs(parseFloat((c[cAmt]||"").replace(/[$,]/g,"")))||0 : 0;
+    if(!px && qty && amt) px=amt/qty;
+    const idBase="m1_"+[date,sym,qty||amt,px||"",typ.slice(0,4)].join("|");
+    if(/div/.test(typ) && !/reinvest/.test(typ)){
+      if(sym && amt) divs.push({id:idBase, ticker:sym, amount:amt, date, ts:0});
+    } else if(/buy|purchase|reinvest/.test(typ)){
+      if(sym && qty && px) lots.push({id:idBase, ticker:sym, shares:qty, price:px, date, ts:0});
+    } else if(/sell|sale/.test(typ)){
+      if(sym && qty && px) lots.push({id:idBase, ticker:sym, shares:-qty, price:px, date, ts:0});
+    } else skipped++;
+  }
+  return {lots, divs, skipped};
+}
+function importM1(inp){
+  const f=inp.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{ try{
+      const {lots, divs, skipped}=parseM1(r.result);
+      const haveL=new Set(DB.stocks.lots.map(l=>l.id));
+      const haveD=new Set(DB.stocks.divs.map(d=>d.id));
+      const newL=lots.filter(l=>!haveL.has(l.id));
+      const newD=divs.filter(d=>!haveD.has(d.id));
+      if(!newL.length && !newD.length){
+        alert("Parsed "+lots.length+" trades and "+divs.length+" dividends — everything already imported.");
+      } else if(confirm(`Found ${newL.length} new buys/sells and ${newD.length} new dividend payments`+
+          (skipped?` (${skipped} non-trade rows skipped)`:"")+`. Import?`)){
+        newL.forEach(l=>DB.stocks.lots.push(l));
+        newD.forEach(d=>DB.stocks.divs.push(d));
+        DB.stocks.lots.sort((a,b)=>a.date<b.date?-1:1);
+        touched(); refreshMkt();
+      }
+    }catch(e){ alert("Import failed: "+e.message); }
+    inp.value=""; };
   r.readAsText(f);
 }
 
