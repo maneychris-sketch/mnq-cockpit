@@ -1,6 +1,8 @@
-const CACHE = "mnq-cockpit-v1";
+const CACHE = "mnq-cockpit-v2";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest",
-               "./icon-180.png", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png"];
+               "./icon-180.png", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png",
+               "./journal.html", "./journal.webmanifest", "./journal-icon-180.png",
+               "./journal-icon-192.png", "./journal-icon-512.png", "./journal-icon-maskable-512.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
