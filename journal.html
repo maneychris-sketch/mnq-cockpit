@@ -1225,10 +1225,10 @@ async function screenStock(){
       const j=await avCall("function=OVERVIEW&symbol="+t);
       if(j && j.Symbol){ m.ov=j; m.ovAt=Date.now(); }
       persistMkt(); }
+    stat.textContent=callsToday()+"/25 API calls used today";
   }catch(e){ stat.textContent = e.message==="budget"?
       "daily API budget used up — try tomorrow" : e.message==="no key"? "no API key saved":"fetch error — try again"; }
   MKT._lastScreen=t; persistMkt();
-  stat.textContent=callsToday()+"/25 API calls used today";
   renderScreen();
 }
 function renderScreen(){
