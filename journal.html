@@ -287,6 +287,9 @@
     <div class="note" id="buyplan" style="margin-top:12px"></div>
     <div class="note" id="allocadvice" style="margin-top:12px"></div>
   </div>
+  <div class="card"><h2>Interested — stocks you're watching <span class="note">(add them from the Research tab)</span></h2>
+    <table id="inttab"><thead><tr><th>Ticker</th><th>Name</th><th>Price</th><th>Yield</th><th>Pays</th><th>Grade</th><th>Next ex-div</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
   <div class="card"><h2>Dividend yield breakdown <span class="note">(annual income by holding &middot; combined yield in the center)</span></h2>
     <canvas id="c_yield" style="height:230px"></canvas><div class="legend" id="yield_leg"></div>
     <div id="ysafety" class="note" style="margin-top:12px"></div>
@@ -518,6 +521,7 @@ function migrate(d){
               divs: Array.isArray(s.divs) ? s.divs : [],
               snaps: s.snaps || {}, quotes: s.quotes || {},
               targets: s.targets || { updated:0, w:{} },
+              interested: s.interested || { updated:0, list:[] },
               dgoal: s.dgoal || { goal:100, contrib:0, grow:5, drip:1, updated:0 } } };
 }
 let DB = migrate(JSON.parse(localStorage.getItem(KEY) || "{}"));
@@ -956,7 +960,7 @@ async function refreshMkt(){
   const avKey=localStorage.getItem(AVKEY);
   const usePG=!!pgk();
   if(!avKey && !usePG){ document.getElementById("mktstat").textContent="— no API key saved yet"; return; }
-  const ts=tickers();          // held tickers only — sold ones were burning the budget
+  const ts=[...new Set([...tickers(), ...interestedList()])];   // held + watchlist (sold tickers excluded)
   if(!ts.length){ document.getElementById("mktstat").textContent="— add a lot first"; return; }
   const stat=document.getElementById("mktstat");
   const stale=(m,k,h)=>!m[k] || (Date.now()-m[k]) > h*3600e3;
@@ -1551,7 +1555,11 @@ function renderScreen(){
       ${kpi(r.streak? r.streak+" yr"+(r.streak>1?"s":""):"–","RAISE STREAK", r.streak>=3?"pos":"")}
       ${kpi(fnum(ov.PERatio)? fnum(ov.PERatio).toFixed(1):"–","P/E")}
     </div>
-    <div class="note" style="margin-top:10px">Yield safety: <b class="${ys.cls}">${ys.t}</b> — ${ys.msg}</div>
+    <div class="row" style="margin-top:10px">
+      <button class="act ${isInterested(t)?'gray':''}" onclick="toggleInterested('${t}')">
+        ${isInterested(t)?"★ In your Interested list — remove":"☆ Add to Interested"}</button>
+    </div>
+    <div class="note" style="margin-top:6px">Yield safety: <b class="${ys.cls}">${ys.t}</b> — ${ys.msg}</div>
     ${h.length? `<table style="margin-top:12px"><thead><tr><th>Pay date</th><th>Ex-date</th><th>Per share</th></tr></thead><tbody>${
       h.slice(-8).reverse().map(d=>`<tr><td>${fmtD(d.payment_date)}</td><td>${fmtD(d.ex_dividend_date)}</td><td class="gold">$${parseFloat(d.amount).toFixed(4)}</td></tr>`).join("")
     }</tbody></table>`:'<div class="note" style="margin-top:10px">no dividend history found — this one may not pay a dividend.</div>'}
@@ -1615,6 +1623,45 @@ function renderWhatIf(){
       ${secNew&&yld>0? " · new sector for you ✓":""}
       · yield safety: <b class="${ys.cls}">${ys.t}</b></div>`;
 }
+
+// ---- interested watchlist ----
+function interestedList(){ return (DB.stocks.interested&&DB.stocks.interested.list)||[]; }
+function isInterested(t){ return interestedList().includes(t); }
+function toggleInterested(t){
+  const cur=interestedList().slice();
+  const i=cur.indexOf(t);
+  if(i>=0) cur.splice(i,1); else cur.push(t);
+  DB.stocks.interested={updated:Date.now(), list:cur};
+  touched();
+  if(MKT._lastScreen===t) renderScreen();
+}
+function renderInterested(){
+  const tb=document.querySelector("#inttab tbody"); if(!tb) return;
+  const list=interestedList();
+  tb.innerHTML="";
+  if(!list.length){ tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:#8b94ac">nothing yet — look a stock up on the Research tab and hit ☆ Add to Interested</td></tr>'; return; }
+  list.forEach(t=>{
+    const m=MKT[t]||{}; const ov=m.ov||{};
+    const r=rateStock(t);
+    const hasData=!!(m.price||(m.divs&&m.divs.length));
+    const nextEx=(m.divs||[]).map(d=>d.ex_dividend_date).filter(d=>d&&d>today()).sort()[0];
+    const col=r.score>=80?"#2ee6a8":r.score>=65?"#f0b429":r.score>=50?"#ffb74d":"#ff5d6c";
+    tb.insertAdjacentHTML("beforeend",`<tr>
+      <td><b>${t}</b></td><td>${(ov.Name||"–").slice(0,26)}</td>
+      <td>${m.price?fmt2(m.price):"–"}</td>
+      <td class="${yieldSafety(r.yld).cls}">${r.yld?r.yld.toFixed(2)+"%":"–"}</td>
+      <td>${r.freq.label}</td>
+      <td>${hasData?`<span class="chip" style="background:${col}22;color:${col}">${r.grade}</span>`:"–"}</td>
+      <td>${nextEx?fmtD(nextEx):"–"}</td>
+      <td><button class="act gray" style="padding:3px 9px" onclick="intTest('${t}')">test</button>
+          <button class="act gray" style="padding:3px 9px" onclick="intView('${t}')">view</button>
+          <button class="act danger" style="padding:3px 9px" onclick="toggleInterested('${t}')">&times;</button></td></tr>`);
+  });
+}
+function intView(t){ document.querySelector('nav button[data-t="rsc"]').click();
+  document.getElementById("sc_tick").value=t; screenStock(); }
+function intTest(t){ document.querySelector('nav button[data-t="rsc"]').click();
+  document.getElementById("wi_tick").value=t; whatIf(); }
 
 // ---- top-50 reference list ----
 let T50SORT="px";
@@ -2059,6 +2106,7 @@ function renderStocks(){
       <td>${d.auto?"":`<button class="act danger" style="padding:2px 8px" onclick="delDiv('${d.id}')">&times;</button>`}</td></tr>`); });
   if(!recv.length) db_.innerHTML='<tr><td colspan="5" style="text-align:center;color:#8b94ac">nothing yet — refresh market data after adding lots</td></tr>';
   drawInc("c_inc12", recv);
+  renderInterested();
 }
 const INC_STATE = {};
 const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -2307,6 +2355,9 @@ function mergeDB(a,b){
              targets:(((a.stocks&&a.stocks.targets)||{updated:0}).updated||0) >=
                      (((b.stocks&&b.stocks.targets)||{updated:0}).updated||0)
                      ? ((a.stocks&&a.stocks.targets)||{updated:0,w:{}}) : b.stocks.targets,
+             interested:(((a.stocks&&a.stocks.interested)||{updated:0}).updated||0) >=
+                     (((b.stocks&&b.stocks.interested)||{updated:0}).updated||0)
+                     ? ((a.stocks&&a.stocks.interested)||{updated:0,list:[]}) : b.stocks.interested,
              dgoal:(((a.stocks&&a.stocks.dgoal)||{updated:0}).updated||0) >=
                    (((b.stocks&&b.stocks.dgoal)||{updated:0}).updated||0)
                    ? ((a.stocks&&a.stocks.dgoal)||{updated:0}) : b.stocks.dgoal } };
@@ -2426,7 +2477,7 @@ if(syncConfigured()) syncNow();
 (function(){
   if(!anyKey()) return;
   if(Date.now()-parseInt(localStorage.getItem("journal_autofetch")||"0") < 20*3600e3) return;
-  const need=tickers().some(t=>{ const m=MKT[t]||{};
+  const need=[...new Set([...tickers(), ...interestedList()])].some(t=>{ const m=MKT[t]||{};
     return !(m.divs&&m.divs.length)? !m.divsAt || Date.now()-m.divsAt>144*3600e3 : Date.now()-m.divsAt>144*3600e3; });
   if(!need) return;
   localStorage.setItem("journal_autofetch", String(Date.now()));
