@@ -79,9 +79,38 @@
   .ringbox svg { transform:rotate(-90deg); }
   .ringbox .rv { font-size:15px; font-weight:800; margin-top:-74px; }
   .ringbox .rl { color:var(--dim); font-size:11px; letter-spacing:.5px; margin-top:58px; }
-  #heat { display:grid; grid-auto-flow:column; gap:3px; }
-  .hcol { display:grid; grid-template-rows:repeat(5,14px); gap:3px; }
-  .hcell { width:14px; height:14px; border-radius:3px; background:rgba(255,255,255,.05); }
+  #heat { display:grid; grid-auto-flow:column; gap:3px; width:max-content; }
+  .hcol { display:grid; grid-template-rows:repeat(5,22px); gap:3px; }
+  .hcell { width:42px; height:22px; border-radius:4px; background:rgba(255,255,255,.05);
+           display:flex; align-items:center; justify-content:center;
+           font-size:9.5px; font-weight:700; color:#e8ecf6; }
+  .card h2.clp { cursor:pointer; user-select:none; -webkit-user-select:none; }
+  .card h2.clp::before { content:"\25BE"; color:var(--dim); margin-right:8px; font-size:11px;
+           display:inline-block; transition:transform .15s; }
+  .card.clps h2.clp::before { transform:rotate(-90deg); }
+  .card.clps > *:not(h2) { display:none; }
+  .card.clps { padding-bottom:12px; }
+  #dcal { display:grid; grid-template-columns:repeat(7,minmax(74px,1fr)); gap:4px; min-width:560px; }
+  .dhd { color:var(--dim); font-size:10.5px; letter-spacing:.5px; text-align:center; padding:2px 0; }
+  .dday { min-height:62px; border:1px solid var(--line); border-radius:8px; padding:3px 4px; font-size:11px; }
+  .dday.off { opacity:.35; }
+  .dday.tod { border-color:var(--gold); box-shadow:0 0 0 1px rgba(240,180,41,.35) inset; }
+  .dday .dn { color:var(--dim); font-size:10px; }
+  .dpay { border-radius:5px; padding:1px 4px; margin-top:2px; font-weight:700; font-size:10px;
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+          background:rgba(240,180,41,.16); color:var(--gold2); }
+  .dpay.past { background:rgba(46,230,168,.13); color:var(--grn); }
+  .dpay.proj { background:rgba(77,124,254,.14); color:#9ab6ff; }
+  .sugg { display:inline-block; border-radius:6px; padding:2px 9px; font-size:11.5px; font-weight:800; }
+  .sugg.buy { background:rgba(46,230,168,.16); color:var(--grn); }
+  .sugg.hold { background:rgba(139,148,172,.16); color:var(--txt); }
+  .sugg.sell { background:rgba(255,93,108,.16); color:var(--red); }
+  .newsitem { border-bottom:1px solid var(--line); padding:9px 0; }
+  .newsitem a { color:var(--txt); text-decoration:none; font-weight:600; font-size:13.5px; }
+  .newsitem a:hover { color:var(--gold2); }
+  .newsmeta { color:var(--dim); font-size:11.5px; margin-top:2px; }
+  .ratebadge { display:inline-flex; align-items:center; justify-content:center; width:54px; height:54px;
+          border-radius:14px; font-size:24px; font-weight:800; }
   .bar { height:10px; border-radius:6px; background:#20263a; overflow:hidden; margin:6px 0 2px; }
   .bar>div { height:100%; border-radius:6px; background:linear-gradient(90deg,var(--gold2),var(--gold)); }
   .bar.red>div { background:linear-gradient(90deg,#ff8d98,var(--red)); }
@@ -112,6 +141,8 @@
   <button class="on" data-t="dash">Dashboard</button>
   <button data-t="log">Journal</button>
   <button data-t="stk">Stocks</button>
+  <button data-t="div">Dividends</button>
+  <button data-t="rsc">Research</button>
   <button data-t="ana">Analytics</button>
   <button data-t="tgt">Targets</button>
   <button data-t="sync">Sync</button>
@@ -231,7 +262,17 @@
       <tbody></tbody></table>
     <div class="note" id="hnote"></div>
   </div>
-  <div class="card"><h2>Allocation</h2><canvas id="c_alloc" style="height:230px"></canvas><div class="legend" id="alloc_leg"></div></div>
+  <div class="card"><h2>Allocation &amp; targets</h2><canvas id="c_alloc" style="height:230px"></canvas><div class="legend" id="alloc_leg"></div>
+    <table id="tgtab" style="margin-top:14px"><thead><tr><th>Ticker</th><th>Now</th><th>Target %</th>
+      <th>Drift</th><th>$ to rebalance</th></tr></thead><tbody></tbody></table>
+    <div class="row" style="margin-top:10px">
+      <button class="act gray" onclick="targetsFromCurrent()">Set targets = current mix</button>
+      <button class="act gray" onclick="targetsEqual()">Set equal weight</button>
+      <button class="act" onclick="saveTargets()">Save targets</button>
+      <span class="note" id="tgsum" style="margin:0"></span>
+    </div>
+    <div class="note" id="allocadvice" style="margin-top:12px"></div>
+  </div>
   <div class="card"><h2>Dividend yield breakdown <span class="note">(annual income by holding &middot; combined yield in the center)</span></h2>
     <canvas id="c_yield" style="height:230px"></canvas><div class="legend" id="yield_leg"></div>
     <div id="ysafety" class="note" style="margin-top:12px"></div></div>
@@ -250,6 +291,70 @@
     </div>
     <canvas id="c_inc12" style="height:180px"></canvas>
     <table id="dtab"><thead><tr><th>Date</th><th>Ticker</th><th>Amount</th><th>Source</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+</div>
+
+<!-- ============ DIVIDENDS ============ -->
+<div class="tab" id="div">
+  <div class="card"><div class="grid" id="dkpis"></div></div>
+  <div class="card"><h2>Payment calendar <span class="note">(green = received &middot; gold = declared &middot; blue = estimated from history)</span></h2>
+    <div class="row" style="align-items:center">
+      <button class="act gray" style="padding:6px 14px" onclick="calNav(-1)">&larr;</button>
+      <b id="dcal_title" style="min-width:130px;text-align:center"></b>
+      <button class="act gray" style="padding:6px 14px" onclick="calNav(1)">&rarr;</button>
+      <button class="act gray" style="padding:6px 14px" onclick="calNav(0)">today</button>
+      <span class="note" id="dcal_sum" style="margin:0 0 0 auto"></span>
+    </div>
+    <div id="dcal"></div>
+    <div class="note">Estimated payments project each stock's payment rhythm and latest per-share amount forward —
+      actual declarations can shift dates by a few days.</div>
+  </div>
+  <div class="card"><h2>Annual income &amp; DRIP <span class="note">(what reinvesting the dividends does)</span></h2>
+    <div class="grid" id="dripkpis"></div>
+    <div class="note" id="dripnote"></div>
+  </div>
+  <div class="card"><h2>Dividend increases &amp; cuts <span class="note">(per holding, from payment history)</span></h2>
+    <table id="incrtab"><thead><tr><th>Ticker</th><th>Pays</th><th>Rate /share</th><th>Last change</th>
+      <th>When</th><th>1-yr trend</th><th>Streak</th></tr></thead><tbody></tbody></table>
+    <div class="note" id="incrnote"></div>
+  </div>
+  <div class="card"><h2>Recent change feed <span class="note">(last 24 months, all holdings)</span></h2>
+    <table id="feedtab"><thead><tr><th>Date</th><th>Ticker</th><th>From</th><th>To</th><th>Change</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="card"><h2>Dividend goal</h2>
+    <div class="row">
+      <div><label class="f">GOAL — MONTHLY INCOME $</label><input type="number" id="dg_goal" style="width:130px"></div>
+      <div><label class="f">ADDING $/MONTH</label><input type="number" id="dg_contrib" style="width:110px"></div>
+      <div><label class="f">DIV GROWTH %/YR</label><input type="number" id="dg_grow" step="0.5" style="width:110px"></div>
+      <div><label class="f">DRIP ON?</label><select id="dg_drip" style="width:90px"><option value="1">yes</option><option value="0">no</option></select></div>
+      <button class="act" onclick="saveDGoal()">Calculate</button>
+    </div>
+    <div class="grid" id="dg_kpis" style="margin-top:6px"></div>
+    <canvas id="c_goal" style="height:210px"></canvas>
+    <div class="note" id="dg_note"></div>
+  </div>
+</div>
+
+<!-- ============ RESEARCH (screener + news) ============ -->
+<div class="tab" id="rsc">
+  <div class="card"><h2>Stock screener <span class="note">(dividend breakdown &amp; rating for any ticker)</span></h2>
+    <div class="row">
+      <input id="sc_tick" placeholder="ticker e.g. SCHD" style="width:130px;text-transform:uppercase"
+        onkeydown="if(event.key==='Enter')screenStock()">
+      <button class="act" onclick="screenStock()">Look up</button>
+      <span class="note" id="sc_stat" style="margin:0"></span>
+    </div>
+    <div id="sc_out"></div>
+  </div>
+  <div class="card"><h2>News &amp; suggestions <span class="note">(your dividend holdings)</span></h2>
+    <div class="row">
+      <button class="act" onclick="fetchNews()">Refresh news</button>
+      <span class="note" id="newsstat" style="margin:0"></span>
+    </div>
+    <div id="sugg_out"></div>
+    <div id="news_out"></div>
+    <div class="note">Suggestions are a mechanical read of headline sentiment + your yield-safety bands —
+      a starting point for your own judgment, not financial advice.</div>
   </div>
 </div>
 
@@ -365,7 +470,9 @@ function migrate(d){
     goals: d.goals || { day:50, week:250, month:1000, maxloss:100, maxtrades:5, updated:0 },
     stocks: { lots: Array.isArray(s.lots) ? s.lots : [],
               divs: Array.isArray(s.divs) ? s.divs : [],
-              snaps: s.snaps || {}, quotes: s.quotes || {} } };
+              snaps: s.snaps || {}, quotes: s.quotes || {},
+              targets: s.targets || { updated:0, w:{} },
+              dgoal: s.dgoal || { goal:100, contrib:0, grow:5, drip:1, updated:0 } } };
 }
 let DB = migrate(JSON.parse(localStorage.getItem(KEY) || "{}"));
 let MKT = JSON.parse(localStorage.getItem(MKTKEY) || "{}");   // {TICK:{price,prev,chg,quoteAt,divs,divsAt}, _calls:{date,n}}
@@ -807,6 +914,482 @@ function yieldSafety(y){
   return           {t:"DANGER",  cls:"neg", msg:"yield-trap territory — payouts this size usually come with principal erosion (typical of covered-call / YieldBoost ETFs: the income is real but NAV often bleeds)"};
 }
 
+// ================= dividend intelligence =================
+function divHist(t){
+  return ((MKT[t]&&MKT[t].divs)||[])
+    .filter(d=>d.payment_date && d.payment_date!=="None" && parseFloat(d.amount)>0)
+    .slice().sort((a,b)=>a.payment_date<b.payment_date?-1:1);
+}
+function freqOf(t){
+  const h=divHist(t); if(h.length<2) return {n:0, label:"–"};
+  const gaps=[];
+  for(let i=Math.max(1,h.length-8);i<h.length;i++)
+    gaps.push((new Date(h[i].payment_date)-new Date(h[i-1].payment_date))/864e5);
+  gaps.sort((a,b)=>a-b);
+  const g=gaps[Math.floor(gaps.length/2)];
+  if(g<45)  return {n:12, label:"monthly",   days:Math.max(g,25)};
+  if(g<135) return {n:4,  label:"quarterly", days:g};
+  if(g<270) return {n:2,  label:"semi-annual", days:g};
+  return     {n:1,  label:"annual", days:g};
+}
+function divChanges(t){
+  const h=divHist(t); const out=[];
+  for(let i=1;i<h.length;i++){
+    const a=parseFloat(h[i-1].amount), b=parseFloat(h[i].amount);
+    if(a>0 && Math.abs(b-a)/a>0.001)
+      out.push({date:h[i].payment_date, from:a, to:b, pct:100*(b-a)/a});
+  }
+  return out;
+}
+function perShareWindow(t, from, to){
+  return divHist(t).filter(d=>d.payment_date>=from && d.payment_date<to)
+    .reduce((a,d)=>a+parseFloat(d.amount),0);
+}
+function raiseStreak(t){
+  const ch=divChanges(t); if(!ch.length) return {n:0, label:"flat"};
+  let n=0;
+  for(let i=ch.length-1;i>=0;i--){ if(ch[i].pct>0) n++; else break; }
+  if(n===0) return {n:-1, label:"cut last"};
+  return {n, label:n+" raise"+(n>1?"s":"")+" in a row"};
+}
+function isoAdd(ds, days){ const d=new Date(ds+"T12:00"); d.setDate(d.getDate()+days);
+  return d.toISOString().slice(0,10); }
+// project future payments from cadence + latest per-share amount
+function projPayments(horizonDays){
+  const out=[]; const end=isoAdd(today(), horizonDays||400);
+  tickers().forEach(t=>{
+    const h=divHist(t); const f=freqOf(t);
+    if(!h.length || !f.n) return;
+    const amt=parseFloat(h[h.length-1].amount);
+    const sh=sharesNow(t);
+    let d=h[h.length-1].payment_date;              // includes future declared payouts
+    for(let i=0;i<20;i++){
+      d=isoAdd(d, Math.round(f.days||365/f.n));
+      if(d>end) break;
+      if(d>today()) out.push({date:d, t, amt:amt*sh, per:amt, proj:true});
+    }
+  });
+  return out;
+}
+function declaredUpcoming(){
+  const out=[];
+  tickers().forEach(t=>{ divHist(t).forEach(d=>{
+    if(d.payment_date>today())
+      out.push({date:d.payment_date, t, amt:sharesNow(t)*parseFloat(d.amount), per:parseFloat(d.amount)}); }); });
+  return out;
+}
+
+// ---- payment calendar (month grid) ----
+let CAL=null;
+function calNav(d){
+  const now=new Date();
+  if(!CAL || d===0) CAL={y:now.getFullYear(), m:now.getMonth()};
+  if(d) { CAL.m+=d; while(CAL.m<0){CAL.m+=12;CAL.y--;} while(CAL.m>11){CAL.m-=12;CAL.y++;} }
+  renderCal();
+}
+function renderCal(){
+  const now=new Date();
+  if(!CAL) CAL={y:now.getFullYear(), m:now.getMonth()};
+  const pad=n=>String(n).padStart(2,"0");
+  const mk=(CAL.y+"-"+pad(CAL.m+1));
+  document.getElementById("dcal_title").textContent = MONTHS[CAL.m]+" "+CAL.y;
+  const first=new Date(CAL.y, CAL.m, 1).getDay();
+  const dim=new Date(CAL.y, CAL.m+1, 0).getDate();
+  // gather events for this month
+  const ev={};
+  const push=(ds,o)=>{ (ev[ds]=ev[ds]||[]).push(o); };
+  receivedAll().forEach(d=>{ if(d.date.slice(0,7)===mk) push(d.date,{t:d.ticker, amt:d.amount, cls:"past"}); });
+  declaredUpcoming().forEach(d=>{ if(d.date.slice(0,7)===mk) push(d.date,{t:d.t, amt:d.amt, cls:""}); });
+  projPayments(430).forEach(d=>{ if(d.date.slice(0,7)===mk) push(d.date,{t:d.t, amt:d.amt, cls:"proj"}); });
+  let tot=0; Object.values(ev).forEach(a=>a.forEach(x=>tot+=x.amt));
+  document.getElementById("dcal_sum").textContent = tot>0? "month total ≈ "+fmt2(tot) : "no payments this month";
+  const el=document.getElementById("dcal"); el.innerHTML="";
+  ["SUN","MON","TUE","WED","THU","FRI","SAT"].forEach(d=>
+    el.insertAdjacentHTML("beforeend",`<div class="dhd">${d}</div>`));
+  for(let i=0;i<first;i++) el.insertAdjacentHTML("beforeend",`<div class="dday off"></div>`);
+  const tds=today();
+  for(let d=1;d<=dim;d++){
+    const ds=CAL.y+"-"+pad(CAL.m+1)+"-"+pad(d);
+    const items=(ev[ds]||[]).sort((a,b)=>b.amt-a.amt);
+    let html=`<div class="dn">${d}</div>`;
+    items.slice(0,3).forEach(x=>{ html+=`<div class="dpay ${x.cls}" title="${x.t} ${fmt2(x.amt)}${x.cls==='proj'?' (estimated)':''}">${x.t} ${x.amt>=0.005?fmt2(x.amt):""}</div>`; });
+    if(items.length>3) html+=`<div class="dn">+${items.length-3} more</div>`;
+    el.insertAdjacentHTML("beforeend",`<div class="dday${ds===tds?" tod":""}">${html}</div>`);
+  }
+}
+
+// ---- annual income & DRIP ----
+function portfolioIncome(){
+  const ts=tickers();
+  const V=ts.reduce((a,t)=>a+sharesNow(t)*price(t),0);
+  const fwd=ts.reduce((a,t)=>a+ttmPerShare(t)*sharesNow(t),0);
+  return {V, fwd, y: V>0? fwd/V : 0};
+}
+function renderDrip(){
+  const {V, fwd, y}=portfolioIncome();
+  const el=document.getElementById("dripkpis");
+  if(!V || !fwd){ el.innerHTML=kpi("–","NO DATA YET");
+    document.getElementById("dripnote").textContent=
+      "Add holdings and refresh market data on the Stocks tab — then this shows what reinvesting does."; return; }
+  const r=y/12;
+  const drip1=V*(Math.pow(1+r,12)-1);          // income over next 12mo, reinvesting monthly
+  const V5=V*Math.pow(1+r,60);
+  document.getElementById("dripkpis").innerHTML =
+    kpi(fmt2(fwd),"ANNUAL INCOME — NO DRIP","gold") +
+    kpi(fmt2(drip1),"ANNUAL INCOME — WITH DRIP","pos") +
+    kpi(fmt2(drip1-fwd),"DRIP BONUS / YR","pos") +
+    kpi((100*y).toFixed(2)+"%","PORTFOLIO YIELD") +
+    kpi(fmt2(V5*y),"INCOME/YR IN 5 YRS (DRIP)","gold") +
+    kpi(fmt2(fwd/12),"AVG PER MONTH NOW","gold");
+  document.getElementById("dripnote").innerHTML =
+    `With DRIP, every payment buys more shares that themselves pay dividends — at your current `+
+    `${(100*y).toFixed(2)}% yield that compounding is worth <b class="pos">${fmt2(drip1-fwd)}</b> extra in year one `+
+    `and snowballs after: keep it on for ~5 years and the same portfolio pays <b>${fmt2(V5*y)}</b>/yr `+
+    `without adding a dollar. (Assumes payouts and prices hold steady.)`;
+}
+
+// ---- dividend goal ----
+function simGoal(goalM, contrib, growPct, drip, V0, y0){
+  let V=V0, y=y0>0? y0 : 0.035; const series=[];
+  const gm=Math.pow(1+growPct/100, 1/12);
+  let m=0;
+  for(; m<=600; m++){
+    const inc=V*y/12;
+    series.push(inc);
+    if(inc>=goalM && goalM>0) return {months:m, series, done:true};
+    V+=contrib+(drip?inc:0); y*=gm;
+  }
+  return {months:m, series, done:false};
+}
+function etaLabel(m){
+  if(m<=0) return "already there 🎉";
+  const d=new Date(); d.setMonth(d.getMonth()+m);
+  const yrs=m/12;
+  return (yrs>=1? yrs.toFixed(1)+" yrs" : m+" mo")+" — "+MONTHS[d.getMonth()]+" "+d.getFullYear();
+}
+function saveDGoal(){
+  const g=id=>parseFloat(document.getElementById(id).value)||0;
+  DB.stocks.dgoal={ goal:g("dg_goal"), contrib:g("dg_contrib"), grow:g("dg_grow"),
+    drip:document.getElementById("dg_drip").value==="1"?1:0, updated:Date.now() };
+  touched();
+}
+function renderDGoal(){
+  const dg=DB.stocks.dgoal||{};
+  const set=(id,v)=>{ const el=document.getElementById(id);
+    if(document.activeElement!==el) el.value=v; };
+  set("dg_goal",dg.goal||""); set("dg_contrib",dg.contrib||"");
+  set("dg_grow",dg.grow!==undefined?dg.grow:5);
+  const ds=document.getElementById("dg_drip");
+  if(document.activeElement!==ds) ds.value=dg.drip?"1":"0";
+  const {V, fwd, y}=portfolioIncome();
+  const nowM=fwd/12;
+  const out=document.getElementById("dg_kpis");
+  if(!dg.goal){ out.innerHTML=kpi(fmt2(nowM||0),"CURRENT INCOME /MO","gold")+
+      kpi("–","SET A GOAL ABOVE");
+    blank("c_goal","enter a goal and hit Calculate");
+    document.getElementById("dg_note").textContent=""; return; }
+  const wD=simGoal(dg.goal, dg.contrib||0, dg.grow||0, true,  V, y);
+  const nD=simGoal(dg.goal, dg.contrib||0, dg.grow||0, false, V, y);
+  out.innerHTML =
+    kpi(fmt2(nowM),"CURRENT INCOME /MO","gold") +
+    kpi(fmt2(dg.goal),"GOAL /MO","gold") +
+    kpi(nowM>0? (100*nowM/dg.goal).toFixed(1)+"%":"0%","OF THE WAY THERE", nowM/dg.goal>=1?"pos":"") +
+    kpi(wD.done? etaLabel(wD.months):"50+ yrs","ETA WITH DRIP", wD.done?"pos":"neg") +
+    kpi(nD.done? etaLabel(nD.months):"50+ yrs","ETA WITHOUT DRIP", nD.done?"":"neg") +
+    kpi(wD.done&&nD.done? (nD.months-wD.months)+" mo":"–","TIME DRIP SAVES","pos");
+  const sim=dg.drip? wD : nD;
+  drawLine("c_goal", sim.series.filter((_,i)=>i%3===0), "#2ee6a8", dg.goal);
+  document.getElementById("dg_note").innerHTML =
+    `Projection: ${fmt2(nowM)}/mo today &rarr; ${fmt2(dg.goal)}/mo goal, adding ${fmt2(dg.contrib||0)}/mo, `+
+    `${dg.grow||0}% annual dividend growth, DRIP ${dg.drip?"on":"off"}. `+
+    (wD.done&&nD.done&&nD.months>wD.months?
+      `Reinvesting gets you there <b class="pos">${((nD.months-wD.months)/12).toFixed(1)} years sooner</b>.`:"");
+}
+
+// ---- dividends tab render ----
+function renderDivs(){
+  const ts=tickers();
+  const {fwd}=portfolioIncome();
+  const recv=receivedAll();
+  const mk=today().slice(0,7), yk=today().slice(0,4);
+  const thisMo=recv.filter(d=>d.date.slice(0,7)===mk).reduce((a,d)=>a+d.amount,0);
+  const ytd=recv.filter(d=>d.date.slice(0,4)===yk).reduce((a,d)=>a+d.amount,0);
+  const nexts=[...declaredUpcoming(),...projPayments(430)].sort((a,b)=>a.date<b.date?-1:1);
+  const nx=nexts[0];
+  document.getElementById("dkpis").innerHTML =
+    kpi(fmt2(fwd),"FWD INCOME /YR","gold") +
+    kpi(fmt2(fwd/12),"AVG /MONTH","gold") +
+    kpi(nx? nx.date.slice(5)+" · "+nx.t : "–","NEXT PAYMENT") +
+    kpi(nx? fmt2(nx.amt):"–","NEXT AMOUNT","gold") +
+    kpi(fmt2(thisMo),"RECEIVED THIS MONTH","pos") +
+    kpi(fmt2(ytd),"RECEIVED YTD","pos");
+  renderCal(); renderDrip(); renderDGoal();
+  // increases table
+  const tb=document.querySelector("#incrtab tbody"); tb.innerHTML="";
+  let anyHist=false;
+  ts.forEach(t=>{
+    const h=divHist(t); if(!h.length){
+      tb.insertAdjacentHTML("beforeend",`<tr><td><b>${t}</b></td><td colspan="6" style="color:#8b94ac">no dividend history — refresh market data</td></tr>`);
+      return; }
+    anyHist=true;
+    const f=freqOf(t), ch=divChanges(t), st=raiseStreak(t);
+    const last=ch[ch.length-1];
+    const cur=parseFloat(h[h.length-1].amount);
+    const t1=perShareWindow(t, isoAdd(today(),-365), isoAdd(today(),1));
+    const t0=perShareWindow(t, isoAdd(today(),-730), isoAdd(today(),-365));
+    const trend=t0>0? 100*(t1-t0)/t0 : null;
+    tb.insertAdjacentHTML("beforeend",`<tr><td><b>${t}</b></td><td>${f.label}</td>
+      <td>$${cur.toFixed(4).replace(/0+$/,"").replace(/\.$/,"")}</td>
+      <td class="${last? (last.pct>0?'pos':'neg'):''}">${last? (last.pct>0?"+":"")+last.pct.toFixed(1)+"%":"–"}</td>
+      <td>${last? last.date:"–"}</td>
+      <td class="${trend===null?'':trend>=0?'pos':'neg'}">${trend===null?"–":(trend>0?"+":"")+trend.toFixed(1)+"%"}</td>
+      <td class="${st.n>0?'pos':st.n<0?'neg':''}">${st.label}</td></tr>`);
+  });
+  if(!ts.length) tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:#8b94ac">no holdings yet</td></tr>';
+  document.getElementById("incrnote").textContent = anyHist?
+    "Last change = the most recent time the per-share payout moved. 1-yr trend compares the last 12 months of payouts to the 12 before." : "";
+  // change feed
+  const fb=document.querySelector("#feedtab tbody"); fb.innerHTML="";
+  const cut=isoAdd(today(),-730);
+  const feed=[];
+  ts.forEach(t=>divChanges(t).forEach(c=>{ if(c.date>=cut) feed.push({t,...c}); }));
+  feed.sort((a,b)=>a.date<b.date?1:-1);
+  feed.slice(0,40).forEach(c=>fb.insertAdjacentHTML("beforeend",
+    `<tr><td>${c.date}</td><td><b>${c.t}</b></td><td>$${c.from.toFixed(4)}</td><td>$${c.to.toFixed(4)}</td>
+     <td class="${c.pct>0?'pos':'neg'}">${(c.pct>0?"+":"")+c.pct.toFixed(1)}%</td></tr>`));
+  if(!feed.length) fb.innerHTML='<tr><td colspan="5" style="text-align:center;color:#8b94ac">no payout changes in the last 2 years (or no data yet)</td></tr>';
+}
+
+// ================= research: screener =================
+async function avCall(params){
+  const key=localStorage.getItem(AVKEY); if(!key) throw new Error("no key");
+  if(callsToday()>=24) throw new Error("budget");
+  const r=await fetch("https://www.alphavantage.co/query?"+params+"&apikey="+key);
+  bumpCalls();
+  return r.json();
+}
+function fnum(v){ const n=parseFloat(v); return isNaN(n)? null : n; }
+function annualByYear(t){
+  const by={};
+  divHist(t).forEach(d=>{ const y=d.payment_date.slice(0,4);
+    by[y]=(by[y]||0)+parseFloat(d.amount); });
+  return by;
+}
+function rateStock(t){
+  const m=MKT[t]||{}; const ov=m.ov||{};
+  const px=m.price||0;
+  const ttm=ttmPerShare(t);
+  const yld=px>0? 100*ttm/px : 0;
+  const eps=fnum(ov.EPS);
+  const dps=fnum(ov.DividendPerShare)||ttm;
+  const payout=eps&&eps>0&&dps? 100*dps/eps : null;
+  const by=annualByYear(t);
+  const yrs=Object.keys(by).sort();
+  const full=yrs.filter(y=>y<today().slice(0,4));
+  let streak=0;
+  for(let i=full.length-1;i>0;i--){ if(by[full[i]]>by[full[i-1]]*1.001) streak++; else break; }
+  let cagr=null;
+  if(full.length>=3){ const a=by[full[Math.max(0,full.length-6)]], b=by[full[full.length-1]];
+    const n=Math.min(5, full.length-1);
+    if(a>0) cagr=100*(Math.pow(b/a,1/n)-1); }
+  const f=freqOf(t);
+  let score=50;
+  score += yld<=0? -25 : yld<1? 4 : yld<=4? 16 : yld<=6? 10 : yld<=10? 0 : -12;
+  if(payout!==null) score += payout<60? 12 : payout<80? 6 : payout<100? 0 : -12;
+  score += Math.min(streak,10)*2;
+  if(cagr!==null) score += cagr>10? 10 : cagr>5? 7 : cagr>2? 4 : cagr>0? 2 : -8;
+  score += f.n===12? 4 : f.n===4? 3 : f.n===2? 1 : f.n===1? 0 : -20;
+  score=Math.max(5,Math.min(99,Math.round(score)));
+  const grade=score>=80?"A":score>=65?"B":score>=50?"C":score>=35?"D":"F";
+  return {score, grade, yld, ttm, payout, streak, cagr, freq:f, dps};
+}
+async function screenStock(){
+  const t=document.getElementById("sc_tick").value.trim().toUpperCase();
+  const stat=document.getElementById("sc_stat");
+  if(!t){ stat.textContent="type a ticker first"; return; }
+  if(!localStorage.getItem(AVKEY)){ stat.textContent="save your Alpha Vantage key on the Stocks tab first"; return; }
+  const m=MKT[t]=MKT[t]||{};
+  const stale=(k,h)=>!m[k] || (Date.now()-m[k]) > h*3600e3;
+  try{
+    if(stale("quoteAt",20)){ stat.textContent="fetching quote… (~15s per feed, free API)";
+      const j=await avCall("function=GLOBAL_QUOTE&symbol="+t);
+      const q=j["Global Quote"]||{};
+      if(q["05. price"]){ m.price=parseFloat(q["05. price"]); m.prev=parseFloat(q["08. previous close"]);
+        m.chg=parseFloat((q["10. change percent"]||"0").replace("%","")); m.quoteAt=Date.now(); }
+      persistMkt(); await sleep(13000); }
+    if(stale("divsAt",144)){ stat.textContent="fetching dividend history…";
+      const j=await avCall("function=DIVIDENDS&symbol="+t);
+      if(Array.isArray(j.data)){ m.divs=j.data; m.divsAt=Date.now(); }
+      persistMkt(); await sleep(13000); }
+    if(stale("ovAt",168)){ stat.textContent="fetching company profile…";
+      const j=await avCall("function=OVERVIEW&symbol="+t);
+      if(j && j.Symbol){ m.ov=j; m.ovAt=Date.now(); }
+      persistMkt(); }
+  }catch(e){ stat.textContent = e.message==="budget"?
+      "daily API budget used up — try tomorrow" : e.message==="no key"? "no API key saved":"fetch error — try again"; }
+  MKT._lastScreen=t; persistMkt();
+  stat.textContent=callsToday()+"/25 API calls used today";
+  renderScreen();
+}
+function renderScreen(){
+  const t=MKT._lastScreen; const out=document.getElementById("sc_out");
+  if(!t){ out.innerHTML=""; return; }
+  const m=MKT[t]||{}; const ov=m.ov||{};
+  if(!m.price && !m.divs){ out.innerHTML='<div class="note">no data came back for '+t+' — check the spelling, or the daily API budget.</div>'; return; }
+  const r=rateStock(t);
+  const h=divHist(t);
+  const nextEx=(m.divs||[]).map(d=>d.ex_dividend_date).filter(d=>d&&d>today()).sort()[0]
+      || (ov.ExDividendDate && ov.ExDividendDate>today()? ov.ExDividendDate : null);
+  const col=r.score>=80?"#2ee6a8":r.score>=65?"#f0b429":r.score>=50?"#ffb74d":"#ff5d6c";
+  const held=sharesNow(t)>0.0001;
+  const ys=yieldSafety(r.yld);
+  out.innerHTML=`
+    <div class="row" style="align-items:center;margin-top:10px">
+      <div class="ratebadge" style="background:${col}22;color:${col};border:1px solid ${col}55">${r.grade}</div>
+      <div style="flex:1;min-width:200px">
+        <div style="font-weight:800;font-size:16px">${ov.Name||t} <span class="note">${t}${held?" · you own "+sharesNow(t).toFixed(2).replace(/\.00$/,"")+" sh":""}</span></div>
+        <div class="note">${ov.Sector||"–"} · ${ov.Industry||""} · dividend score ${r.score}/100</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-weight:800;font-size:18px">${m.price?fmt2(m.price):"–"}</div>
+        <div class="${(m.chg||0)>=0?'pos':'neg'}" style="font-size:12.5px">${m.chg!==undefined?(m.chg>0?"+":"")+m.chg.toFixed(2)+"% today":""}</div>
+      </div>
+    </div>
+    <div class="grid" style="margin-top:12px">
+      ${kpi(r.yld?r.yld.toFixed(2)+"%":"–","DIVIDEND YIELD", ys.cls)}
+      ${kpi(r.ttm?fmt2(r.ttm):"–","PAID /SHARE (12MO)","gold")}
+      ${kpi(r.freq.label,"FREQUENCY")}
+      ${kpi(nextEx||"–","NEXT EX-DIV DATE")}
+      ${kpi(r.payout!==null? r.payout.toFixed(0)+"%":"–","PAYOUT RATIO", r.payout===null?"":r.payout<80?"pos":r.payout<100?"amb":"neg")}
+      ${kpi(r.cagr!==null? (r.cagr>0?"+":"")+r.cagr.toFixed(1)+"%":"–","DIV GROWTH /YR (5Y)", r.cagr>0?"pos":r.cagr<0?"neg":"")}
+      ${kpi(r.streak? r.streak+" yr"+(r.streak>1?"s":""):"–","RAISE STREAK", r.streak>=3?"pos":"")}
+      ${kpi(fnum(ov.PERatio)? fnum(ov.PERatio).toFixed(1):"–","P/E")}
+    </div>
+    <div class="note" style="margin-top:10px">Yield safety: <b class="${ys.cls}">${ys.t}</b> — ${ys.msg}</div>
+    ${h.length? `<table style="margin-top:12px"><thead><tr><th>Pay date</th><th>Ex-date</th><th>Per share</th></tr></thead><tbody>${
+      h.slice(-8).reverse().map(d=>`<tr><td>${d.payment_date}</td><td>${d.ex_dividend_date||"–"}</td><td class="gold">$${parseFloat(d.amount).toFixed(4)}</td></tr>`).join("")
+    }</tbody></table>`:'<div class="note" style="margin-top:10px">no dividend history found — this one may not pay a dividend.</div>'}
+    <div class="note" style="margin-top:8px">Score blends yield band, payout ratio, raise streak, 5-yr growth and payment frequency.
+      A/B = quality income candidates · C = fine but check the story · D/F = trap risk. Not financial advice.</div>`;
+}
+
+// ================= research: news =================
+function newsSug(t, s){
+  const y=holdingYield(t); const danger=y>10;
+  if(s>=0.18) return danger? {c:"hold",l:"HOLD — good news, risky yield"} : {c:"buy",l:"BUY / ADD"};
+  if(s<=-0.18) return danger? {c:"sell",l:"REVIEW / SELL RISK"} : {c:"sell",l:"WATCH — negative news"};
+  return {c:"hold",l:"HOLD"};
+}
+async function fetchNews(){
+  const ts=tickers(); const stat=document.getElementById("newsstat");
+  if(!ts.length){ stat.textContent="add holdings first"; return; }
+  if(!localStorage.getItem(AVKEY)){ stat.textContent="save your Alpha Vantage key on the Stocks tab first"; return; }
+  try{
+    stat.textContent="fetching news…";
+    const j=await avCall("function=NEWS_SENTIMENT&sort=LATEST&limit=50&tickers="+ts.join(","));
+    if(Array.isArray(j.feed)){
+      MKT._news={ at:Date.now(), feed:j.feed.slice(0,40).map(a=>({
+        title:a.title, url:a.url, src:a.source, time:a.time_published,
+        s:fnum(a.overall_sentiment_score)||0,
+        tk:(a.ticker_sentiment||[]).filter(x=>ts.includes(x.ticker))
+           .map(x=>({t:x.ticker, r:fnum(x.relevance_score)||0, s:fnum(x.ticker_sentiment_score)||0})) })) };
+      persistMkt();
+    } else stat.textContent="no news returned (budget used up?)";
+  }catch(e){ stat.textContent = e.message==="budget"? "daily API budget used up — try tomorrow":"fetch error"; }
+  renderNews();
+}
+function renderNews(){
+  const n=MKT._news; const so=document.getElementById("sugg_out"), no=document.getElementById("news_out");
+  const stat=document.getElementById("newsstat");
+  if(!n){ so.innerHTML=""; no.innerHTML='<div class="note">Hit "Refresh news" — one API call covers every holding.</div>'; return; }
+  const age=Math.round((Date.now()-n.at)/36e5*10)/10;
+  stat.textContent="updated "+(age<1? Math.round(age*60)+" min":age+" h")+" ago · "+callsToday()+"/25 calls today";
+  const agg={};
+  n.feed.forEach(a=>a.tk.forEach(x=>{ if(x.r<0.15) return;
+    agg[x.t]=agg[x.t]||{ws:0,w:0,n:0}; agg[x.t].ws+=x.s*x.r; agg[x.t].w+=x.r; agg[x.t].n++; }));
+  const rows=Object.entries(agg).map(([t,v])=>({t, s:v.w?v.ws/v.w:0, n:v.n}))
+    .sort((a,b)=>b.s-a.s);
+  so.innerHTML = rows.length?
+    `<table><thead><tr><th>Ticker</th><th>Stories</th><th>Sentiment</th><th>Suggestion</th></tr></thead><tbody>${
+      rows.map(r=>{ const sg=newsSug(r.t, r.s);
+        return `<tr><td><b>${r.t}</b></td><td>${r.n}</td>
+        <td class="${r.s>0.05?'pos':r.s<-0.05?'neg':''}">${r.s.toFixed(2)}</td>
+        <td><span class="sugg ${sg.c}">${sg.l}</span></td></tr>`; }).join("")
+    }</tbody></table>` :
+    '<div class="note">no recent stories mention your holdings directly.</div>';
+  no.innerHTML = n.feed.slice(0,14).map(a=>{
+    const d=a.time? a.time.slice(4,6)+"/"+a.time.slice(6,8)+" "+a.time.slice(9,11)+":"+a.time.slice(11,13):"";
+    const tks=a.tk.map(x=>x.t).join(" ");
+    return `<div class="newsitem"><a href="${a.url}" target="_blank" rel="noopener">${a.title}</a>
+      <div class="newsmeta">${a.src} · ${d}${tks?" · "+tks:""} · ${a.s>0.1?'<span class="pos">bullish</span>':a.s<-0.1?'<span class="neg">bearish</span>':"neutral"}</div></div>`;
+  }).join("");
+}
+
+// ================= allocation targets & advice =================
+function targetsFromCurrent(){
+  const ts=tickers(); const tot=ts.reduce((a,t)=>a+sharesNow(t)*price(t),0);
+  ts.forEach(t=>{ const el=document.getElementById("tg_"+t);
+    if(el&&tot>0) el.value=(100*sharesNow(t)*price(t)/tot).toFixed(1); });
+  sumTargets();
+}
+function targetsEqual(){
+  const ts=tickers();
+  ts.forEach(t=>{ const el=document.getElementById("tg_"+t);
+    if(el) el.value=(100/ts.length).toFixed(1); });
+  sumTargets();
+}
+function sumTargets(){
+  const s=tickers().reduce((a,t)=>{ const el=document.getElementById("tg_"+t);
+    return a+(el?parseFloat(el.value)||0:0); },0);
+  const el=document.getElementById("tgsum");
+  el.innerHTML = s? `targets total <b class="${Math.abs(s-100)<0.5?'pos':'amb'}">${s.toFixed(1)}%</b>`+
+    (Math.abs(s-100)>=0.5?" (aim for 100%)":"") : "";
+}
+function saveTargets(){
+  const w={};
+  tickers().forEach(t=>{ const el=document.getElementById("tg_"+t);
+    const v=el?parseFloat(el.value):0; if(v>0) w[t]=v; });
+  DB.stocks.targets={updated:Date.now(), w};
+  touched();
+}
+function renderAlloc(ts, totVal){
+  const tb=document.querySelector("#tgtab tbody"); tb.innerHTML="";
+  const tg=(DB.stocks.targets&&DB.stocks.targets.w)||{};
+  ts.forEach(t=>{
+    const val=sharesNow(t)*price(t);
+    const now=totVal>0? 100*val/totVal : 0;
+    const tv=tg[t];
+    const drift=tv!==undefined? now-tv : null;
+    const dollars=tv!==undefined? tv/100*totVal-val : null;
+    tb.insertAdjacentHTML("beforeend",`<tr><td><b>${t}</b></td><td>${now.toFixed(1)}%</td>
+      <td><input type="number" id="tg_${t}" value="${tv!==undefined?tv:""}" step="0.5" min="0"
+        style="width:72px" oninput="sumTargets()"></td>
+      <td class="${drift===null?'':Math.abs(drift)<2?'':drift>0?'amb':'pos'}">${drift===null?"–":(drift>0?"+":"")+drift.toFixed(1)+"%"}</td>
+      <td class="${dollars===null?'':dollars>0?'pos':'neg'}">${dollars===null?"–":dollars>0?"buy "+fmt2(dollars):"trim "+fmt2(-dollars)}</td></tr>`);
+  });
+  sumTargets();
+  // advice
+  const msgs=[];
+  const w=t=> totVal>0? 100*sharesNow(t)*price(t)/totVal : 0;
+  ts.filter(t=>w(t)>30).forEach(t=>
+    msgs.push(`&#9888;&#65039; <b>${t}</b> is ${w(t).toFixed(0)}% of the portfolio — over ~30% in one name means one bad earnings day moves everything. Trim or grow around it.`));
+  if(ts.length && ts.length<5)
+    msgs.push(`You hold ${ts.length} name${ts.length>1?"s":""} — 8–15 across different sectors (REITs, staples, tech, healthcare, energy) rounds out a dividend portfolio.`);
+  const incT=ts.reduce((a,t)=>a+ttmIncome(t),0);
+  ts.forEach(t=>{ if(incT>0 && ttmIncome(t)/incT>0.5)
+    msgs.push(`&#9888;&#65039; <b>${t}</b> pays ${(100*ttmIncome(t)/incT).toFixed(0)}% of your dividend income — one cut there would gut the income stream. Build up other payers first.`); });
+  if(Object.keys(tg).length){
+    let best=null;
+    ts.forEach(t=>{ if(tg[t]===undefined) return;
+      const under=tg[t]-w(t); if(best===null||under>best.u) best={t,u:under}; });
+    if(best && best.u>1)
+      msgs.push(`Next buy by your targets: <b class="pos">${best.t}</b> — it's ${best.u.toFixed(1)}% underweight (≈${fmt2(best.u/100*totVal)} to get to target).`);
+    else if(best) msgs.push(`You're within ~1% of every target — buys can go anywhere. ✓`);
+  } else if(ts.length)
+    msgs.push(`Set target percentages above (or tap "current mix" / "equal weight") and the app will tell you what to buy next to stay balanced.`);
+  document.getElementById("allocadvice").innerHTML=msgs.join("<br><br>");
+}
+
 // ================= renders =================
 function metrics(ts){
   const ps=ts.map(pnl), net=ps.reduce((a,b)=>a+b,0);
@@ -884,8 +1467,10 @@ function renderHeat(days){
       const ds=d.toISOString().slice(0,10);
       const cell=document.createElement("div"); cell.className="hcell";
       if(ds in days){ const v=days[ds];
-        const a=0.15+0.85*Math.min(1,Math.abs(v)/mx);
+        const a=0.25+0.75*Math.min(1,Math.abs(v)/mx);
         cell.style.background = v>=0? `rgba(46,230,168,${a.toFixed(2)})` : `rgba(255,93,108,${a.toFixed(2)})`;
+        cell.style.color = v>=0? "#03130c" : "#fff";
+        cell.textContent = (v>=0?"+":"−") + (Math.abs(v)>=10000? (Math.abs(v)/1000).toFixed(1)+"k" : Math.round(Math.abs(v)));
         cell.title = ds+"  "+fmt2(v);
         if(best===null||v>best){ best=v; bestD=ds; }
       } else cell.title=ds;
@@ -893,6 +1478,7 @@ function renderHeat(days){
     }
     el.appendChild(col);
   }
+  requestAnimationFrame(()=>{ const sc=el.closest(".card"); if(sc) sc.scrollLeft=sc.scrollWidth; });
   document.getElementById("heatnote").textContent =
     best!==null? `Best day shown: ${bestD} (${fmt2(best)})` : "Every green square is a day you finished up.";
 }
@@ -965,6 +1551,7 @@ function renderStocks(){
     "Avg cost and base price come straight from Robinhood; Alpha Vantage adds live day-change, yields and the dividend calendar." : "";
   drawDonut("c_alloc","alloc_leg", ts.filter(t=>price(t)>0)
     .map(t=>({label:t, val:sharesNow(t)*price(t)})).sort((a,b)=>b.val-a.val));
+  renderAlloc(ts, totVal);
   // dividend yield donut: slices = annual income $, center = combined yield
   const incItems = ts.map(t=>({label:t, val:ttmIncome(t), tag:holdingYield(t).toFixed(1)+"%"}))
     .filter(i=>i.val>0.005).sort((a,b)=>b.val-a.val);
@@ -1181,7 +1768,7 @@ function subTab(btn){
   document.getElementById("aStk").style.display = btn.dataset.a==="aStk"?"":"none";
   render();
 }
-function render(){ renderDash(); renderLog(); renderStocks(); renderAna(); renderTargets(); persist(); }
+function render(){ renderDash(); renderLog(); renderStocks(); renderDivs(); renderNews(); renderScreen(); renderAna(); renderTargets(); persist(); }
 
 // ================= csv / json =================
 function exportCSV(){
@@ -1238,7 +1825,13 @@ function mergeDB(a,b){
              snaps:{...((b.stocks&&b.stocks.snaps)||{}), ...((a.stocks&&a.stocks.snaps)||{})},
              quotes:(()=>{ const qa=(a.stocks&&a.stocks.quotes)||{}, qb=(b.stocks&&b.stocks.quotes)||{};
                const out={...qb}; for(const k in qa){ if(!out[k] || (qa[k].at||"") >= (out[k].at||"")) out[k]=qa[k]; }
-               return out; })() } };
+               return out; })(),
+             targets:(((a.stocks&&a.stocks.targets)||{updated:0}).updated||0) >=
+                     (((b.stocks&&b.stocks.targets)||{updated:0}).updated||0)
+                     ? ((a.stocks&&a.stocks.targets)||{updated:0,w:{}}) : b.stocks.targets,
+             dgoal:(((a.stocks&&a.stocks.dgoal)||{updated:0}).updated||0) >=
+                   (((b.stocks&&b.stocks.dgoal)||{updated:0}).updated||0)
+                   ? ((a.stocks&&a.stocks.dgoal)||{updated:0}) : b.stocks.dgoal } };
   out.trades.sort((x,y)=> (x.date+(x.time||"")) < (y.date+(y.time||"")) ? -1 :
     (x.date+(x.time||"")) > (y.date+(y.time||"")) ? 1 : (x.ts||0)-(y.ts||0));
   return out;
@@ -1288,6 +1881,22 @@ function disconnectSync(){
 }
 
 // ================= wiring =================
+// collapsible cards: tap any card title to fold it; state remembered per device
+const CLPS = JSON.parse(localStorage.getItem("journal_clps")||"{}");
+document.querySelectorAll(".tab").forEach(tab=>{
+  tab.querySelectorAll(".card").forEach((card,i)=>{
+    const h=card.querySelector(":scope > h2"); if(!h) return;
+    const k=tab.id+"|"+i;
+    h.classList.add("clp");
+    if(CLPS[k]) card.classList.add("clps");
+    h.onclick=()=>{
+      card.classList.toggle("clps");
+      CLPS[k]=card.classList.contains("clps")?1:0;
+      localStorage.setItem("journal_clps", JSON.stringify(CLPS));
+      if(!card.classList.contains("clps")) render();   // redraw charts at real size
+    };
+  });
+});
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on"));
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
