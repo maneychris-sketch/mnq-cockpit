@@ -320,7 +320,7 @@
     </div>
     <div id="dcal"></div>
     <div class="note">Estimated payments project each stock's payment rhythm and latest per-share amount forward —
-      actual declarations can shift dates by a few days.</div>
+      actual declarations can shift dates by a few days. <span id="dcal_cover" class="amb"></span></div>
   </div>
   <div class="card"><h2>Annual income &amp; DRIP <span class="note">(what reinvesting the dividends does)</span></h2>
     <div class="grid" id="dripkpis"></div>
@@ -894,32 +894,38 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function refreshMkt(){
   const key=localStorage.getItem(AVKEY);
   if(!key){ document.getElementById("mktstat").textContent="— no API key saved yet"; return; }
-  const ts=allTickers();
+  const ts=tickers();          // held tickers only — sold ones were burning the budget
   if(!ts.length){ document.getElementById("mktstat").textContent="— add a lot first"; return; }
   const stat=document.getElementById("mktstat");
+  const stale=(m,k,h)=>!m[k] || (Date.now()-m[k]) > h*3600e3;
+  // DIVIDEND HISTORIES FIRST — they power the calendar, income and projections.
+  // Robinhood already supplies real prices twice a day, so AV quotes are only the
+  // day-change % and go last. Never-fetched histories outrank stale refreshes.
+  const plan=[];
+  ts.forEach(t=>{ const m=MKT[t]=MKT[t]||{};
+    if(!(m.divs&&m.divs.length) && stale(m,"divsAt",144)) plan.push({t, fn:"DIVIDENDS", what:"dividends"}); });
+  ts.forEach(t=>{ const m=MKT[t];
+    if(m.divs&&m.divs.length && stale(m,"divsAt",144)) plan.push({t, fn:"DIVIDENDS", what:"dividends"}); });
+  ts.forEach(t=>{ const m=MKT[t];
+    if(stale(m,"quoteAt",20)) plan.push({t, fn:"GLOBAL_QUOTE", what:"quote"}); });
   let n=0;
-  for(const t of ts){
+  for(const job of plan){
     if(callsToday()>=23){ stat.textContent="— daily API budget reached (25); resumes tomorrow"; break; }
-    const m=MKT[t]=MKT[t]||{};
-    const stale=(k,h)=>!m[k] || (Date.now()-m[k]) > h*3600e3;
+    const t=job.t, m=MKT[t];
     try{
-      if(stale("quoteAt",20)){
-        stat.textContent="— fetching "+t+" quote…";
-        const r=await fetch(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${t}&apikey=${key}`);
-        const j=await r.json(); bumpCalls(); n++;
+      stat.textContent="— fetching "+t+" "+job.what+"…";
+      const r=await fetch(`https://www.alphavantage.co/query?function=${job.fn}&symbol=${t}&apikey=${key}`);
+      const j=await r.json(); bumpCalls(); n++;
+      if(job.fn==="DIVIDENDS"){
+        if(Array.isArray(j.data)){ m.divs=j.data; m.divsAt=Date.now(); }
+        else m.divsAt=Date.now();                       // AV has nothing (e.g. TSYY) — don't retry all week
+      } else {
         const q=j["Global Quote"]||{};
         if(q["05. price"]){ m.price=parseFloat(q["05. price"]); m.prev=parseFloat(q["08. previous close"]);
           m.chg=parseFloat((q["10. change percent"]||"0").replace("%","")); m.quoteAt=Date.now(); }
-        await sleep(13000);
       }
-      if(stale("divsAt",144)){
-        if(callsToday()>=23){ stat.textContent="— API budget reached; dividends resume tomorrow"; break; }
-        stat.textContent="— fetching "+t+" dividends…";
-        const r=await fetch(`https://www.alphavantage.co/query?function=DIVIDENDS&symbol=${t}&apikey=${key}`);
-        const j=await r.json(); bumpCalls(); n++;
-        if(Array.isArray(j.data)){ m.divs=j.data; m.divsAt=Date.now(); }
-        await sleep(13000);
-      }
+      persistMkt();
+      await sleep(13000);
     }catch(e){ stat.textContent="— fetch error on "+t; }
   }
   // portfolio snapshot
@@ -1283,6 +1289,10 @@ function renderDivs(){
     kpi(fmt2(thisMo),"RECEIVED THIS MONTH","pos") +
     kpi(fmt2(ytd),"RECEIVED YTD","pos");
   renderCal(); renderDrip(); renderDGoal();
+  // coverage: held tickers the calendar can't show yet (no AV history, <2 real payments)
+  const missing=ts.filter(t=>!divHist(t).length && recvHist(t).length<2 && !["DOGE","USDC","BTC","ETH"].includes(t));
+  document.getElementById("dcal_cover").textContent = missing.length?
+    "No dividend data yet for "+missing.join(", ")+" — appears after the next data refresh, or their first payment lands in Robinhood." : "";
   // increases table
   const tb=document.querySelector("#incrtab tbody"); tb.innerHTML="";
   let anyHist=false;
@@ -2192,6 +2202,17 @@ window.addEventListener("focus", maybePull);
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) maybePull(); });
 sortTrades(); render();
 if(syncConfigured()) syncNow();
+// auto-fetch dividend histories once a day so held stocks appear on the calendar
+// without having to remember the Refresh button (runs only when something's missing/stale)
+(function(){
+  if(!localStorage.getItem(AVKEY)) return;
+  if(Date.now()-parseInt(localStorage.getItem("journal_autofetch")||"0") < 20*3600e3) return;
+  const need=tickers().some(t=>{ const m=MKT[t]||{};
+    return !(m.divs&&m.divs.length)? !m.divsAt || Date.now()-m.divsAt>144*3600e3 : Date.now()-m.divsAt>144*3600e3; });
+  if(!need) return;
+  localStorage.setItem("journal_autofetch", String(Date.now()));
+  setTimeout(refreshMkt, 2500);
+})();
 if("serviceWorker" in navigator && location.protocol.indexOf("http")===0)
   navigator.serviceWorker.register("./sw.js").catch(()=>{});
 </script>
