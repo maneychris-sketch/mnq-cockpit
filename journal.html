@@ -270,7 +270,7 @@
     </div>
   </div>
   <div class="card"><h2>Holdings</h2>
-    <table id="htab"><thead><tr><th>Ticker</th><th>Shares</th><th>Avg cost</th><th>Price</th><th>Day</th>
+    <table id="htab"><thead><tr><th>Ticker</th><th>Grade</th><th>Shares</th><th>Avg cost</th><th>Price</th><th>Day</th>
       <th>Value</th><th>Weight</th><th>Gain $</th><th>Gain %</th><th>Yield</th><th>YoC</th><th>Fwd inc/yr</th><th></th></tr></thead>
       <tbody></tbody></table>
     <div class="note" id="hnote"></div>
@@ -1445,7 +1445,7 @@ function annualByYear(t){
 }
 function rateStock(t){
   const m=MKT[t]||{}; const ov=m.ov||{};
-  const px=m.price||0;
+  const px=m.price||price(t)||0;
   const ttm=ttmPerShare(t);
   const yld=px>0? 100*ttm/px : 0;
   const eps=fnum(ov.EPS);
@@ -2032,8 +2032,12 @@ function renderStocks(){
     const inc=ttmIncome(t);
     const yld=val>0? 100*inc/val : 0;
     const yoc=(sh*ac)>0? 100*inc/(sh*ac) : 0;
+    const gr=rateStock(t);
+    const grCol=gr.score>=80?"#2ee6a8":gr.score>=65?"#f0b429":gr.score>=50?"#ffb74d":"#ff5d6c";
+    const grCell=divHist(t).length?
+      `<span class="chip" style="background:${grCol}22;color:${grCol}" title="dividend score ${gr.score}/100">${gr.grade}</span>`:"–";
     tb.insertAdjacentHTML("beforeend",`<tr>
-      <td><b>${t}</b></td><td>${sh.toFixed(4).replace(/\.?0+$/,"")}</td><td>${fmt2(ac)}</td>
+      <td><b>${t}</b></td><td>${grCell}</td><td>${sh.toFixed(4).replace(/\.?0+$/,"")}</td><td>${fmt2(ac)}</td>
       <td>${px? fmt2(px):"–"}</td>
       <td class="${(m.chg||0)>=0?'pos':'neg'}">${m.chg!==undefined? m.chg.toFixed(2)+"%":"–"}</td>
       <td>${px? fmt$(val):"–"}</td>
@@ -2046,7 +2050,7 @@ function renderStocks(){
       <td><button class="act danger" style="padding:3px 9px" title="remove all lots"
         onclick="removeTicker('${t}')">&times;</button></td></tr>`);
   });
-  if(!ts.length) tb.innerHTML='<tr><td colspan="13" style="text-align:center;color:#8b94ac">no holdings yet — add your first lot above</td></tr>';
+  if(!ts.length) tb.innerHTML='<tr><td colspan="14" style="text-align:center;color:#8b94ac">no holdings yet — add your first lot above</td></tr>';
   const asOf=quoteAsOf();
   document.getElementById("hnote").textContent = ts.length?
     "Prices use Robinhood's own marks (auto-synced 9:00 AM & 5:45 PM) whenever they're the freshest — "+
