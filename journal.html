@@ -362,7 +362,7 @@ function migrate(d){
     goals: d.goals || { day:50, week:250, month:1000, maxloss:100, maxtrades:5, updated:0 },
     stocks: { lots: Array.isArray(s.lots) ? s.lots : [],
               divs: Array.isArray(s.divs) ? s.divs : [],
-              snaps: s.snaps || {} } };
+              snaps: s.snaps || {}, quotes: s.quotes || {} } };
 }
 let DB = migrate(JSON.parse(localStorage.getItem(KEY) || "{}"));
 let MKT = JSON.parse(localStorage.getItem(MKTKEY) || "{}");   // {TICK:{price,prev,chg,quoteAt,divs,divsAt}, _calls:{date,n}}
@@ -596,6 +596,7 @@ function sharesOn(t, date){ return lots().filter(l=>l.ticker===t && l.date<=date
   .reduce((a,l)=>a+l.shares,0); }
 function sharesNow(t){ return sharesOn(t, "9999"); }
 function avgCost(t){
+  const q=bq(t); if(q && q.avg>0) return q.avg;   // broker-authoritative
   let sh=0, cost=0;
   lots().filter(l=>l.ticker===t).sort((a,b)=>a.date<b.date?-1:1).forEach(l=>{
     if(l.shares>0){ cost+=l.shares*l.price; sh+=l.shares; }
@@ -603,7 +604,8 @@ function avgCost(t){
   });
   return sh>0.0001? cost/sh : 0;
 }
-function price(t){ return (MKT[t]&&MKT[t].price) || 0; }
+function bq(t){ return (DB.stocks.quotes||{})[t] || null; }
+function price(t){ return (MKT[t]&&MKT[t].price) || (bq(t)&&bq(t).price) || 0; }
 function ttmPerShare(t){
   const dv=(MKT[t]&&MKT[t].divs)||[]; const cut=new Date(Date.now()-370*864e5).toISOString().slice(0,10);
   return dv.filter(d=>d.payment_date>=cut && d.payment_date<=today()).reduce((a,d)=>a+parseFloat(d.amount||0),0);
@@ -936,7 +938,7 @@ function renderStocks(){
   });
   if(!ts.length) tb.innerHTML='<tr><td colspan="13" style="text-align:center;color:#8b94ac">no holdings yet — add your first lot above</td></tr>';
   document.getElementById("hnote").textContent = ts.length?
-    "Yield = trailing 12-month payouts ÷ price. YoC = same payouts ÷ your average cost." : "";
+    "Avg cost and base price come straight from Robinhood; Alpha Vantage adds live day-change, yields and the dividend calendar." : "";
   drawDonut("c_alloc","alloc_leg", ts.filter(t=>price(t)>0)
     .map(t=>({label:t, val:sharesNow(t)*price(t)})).sort((a,b)=>b.val-a.val));
   // calendar
@@ -1135,7 +1137,10 @@ function mergeDB(a,b){
     trades:uni(a.trades,b.trades), adj:uni(a.adj,b.adj), tomb:[...tomb], goals:gNew.goals,
     stocks:{ lots:uni(a.stocks&&a.stocks.lots, b.stocks&&b.stocks.lots),
              divs:uni(a.stocks&&a.stocks.divs, b.stocks&&b.stocks.divs),
-             snaps:{...((b.stocks&&b.stocks.snaps)||{}), ...((a.stocks&&a.stocks.snaps)||{})} } };
+             snaps:{...((b.stocks&&b.stocks.snaps)||{}), ...((a.stocks&&a.stocks.snaps)||{})},
+             quotes:(()=>{ const qa=(a.stocks&&a.stocks.quotes)||{}, qb=(b.stocks&&b.stocks.quotes)||{};
+               const out={...qb}; for(const k in qa){ if(!out[k] || (qa[k].at||"") >= (out[k].at||"")) out[k]=qa[k]; }
+               return out; })() } };
   out.trades.sort((x,y)=> (x.date+(x.time||"")) < (y.date+(y.time||"")) ? -1 :
     (x.date+(x.time||"")) > (y.date+(y.time||"")) ? 1 : (x.ts||0)-(y.ts||0));
   return out;
