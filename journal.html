@@ -1003,13 +1003,72 @@ function renderStocks(){
   if(!recv.length) db_.innerHTML='<tr><td colspan="5" style="text-align:center;color:#8b94ac">nothing yet — refresh market data after adding lots</td></tr>';
   drawInc("c_inc12", recv);
 }
+const INC_STATE = {};
+const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 function drawInc(id, recv){
-  const now=new Date(); const keys=[]; const map={};
+  const now=new Date(); const keys=[]; const map={}; const by={};
   for(let i=11;i>=0;i--){ const d=new Date(now.getFullYear(), now.getMonth()-i, 15);
-    const k=d.toISOString().slice(0,7); keys.push(k); map[k]=0; }
-  recv.forEach(d=>{ const k=d.date.slice(0,7); if(k in map) map[k]+=d.amount; });
-  drawBars(id, keys.map(k=>map[k]), keys.map(k=>k.slice(5)));
+    const k=d.toISOString().slice(0,7); keys.push(k); map[k]=0; by[k]={}; }
+  recv.forEach(d=>{ const k=d.date.slice(0,7); if(k in map){ map[k]+=d.amount;
+    by[k][d.ticker]=(by[k][d.ticker]||0)+d.amount; } });
+  INC_STATE[id]={keys, map, by};
+  renderIncChart(id, null);
 }
+function renderIncChart(id, hoverI){
+  const st=INC_STATE[id]; if(!st) return;
+  const {keys, map, by}=st;
+  const vals=keys.map(k=>map[k]);
+  if(!vals.some(v=>v>0)){ blank(id,"dividend payments will build this chart"); return; }
+  const {x,w,h}=cv(id);
+  let lo=Math.min(0,...vals), hi=Math.max(0,...vals); if(lo===hi) hi=lo+1;
+  const pad=(hi-lo)*0.1; lo-=pad; hi+=pad;
+  axes(x,w,h,lo,hi);
+  const slot=(w-64)/vals.length, bw=Math.max(2,slot-3);
+  const Y=v=>h-14-(h-24)*((v-lo)/(hi-lo));
+  vals.forEach((v,i)=>{
+    x.fillStyle = i===hoverI? "#ffd166" : (v>=0? "#2ee6a8":"#ff5d6c");
+    const xx=48+i*slot;
+    x.fillRect(xx, Math.min(Y(0),Y(v)), bw, Math.max(1,Math.abs(Y(v)-Y(0))));
+    if(vals.length<=14){ x.fillStyle="#8b94ac"; x.font="9.5px -apple-system";
+      x.textAlign="center"; x.fillText(keys[i].slice(5), xx+bw/2, h-3); } });
+  if(hoverI!==null && hoverI>=0 && hoverI<keys.length){
+    const k=keys[hoverI];
+    const parts=Object.entries(by[k]).sort((a,b)=>b[1]-a[1]);
+    const lines=[MONTHS[parseInt(k.slice(5,7))-1]+" "+k.slice(0,4)+"   "+fmt2(map[k])];
+    parts.slice(0,8).forEach(([t,a])=>lines.push(t+"  "+fmt2(a)));
+    if(parts.length>8) lines.push("+"+(parts.length-8)+" more");
+    if(!parts.length) lines.push("no payments");
+    x.font="12px -apple-system";
+    const tw=Math.max(...lines.map(t=>x.measureText(t).width))+18;
+    const th=lines.length*16+12;
+    let tx=48+hoverI*slot+bw+8; if(tx+tw>w-4) tx=48+hoverI*slot-8-tw;
+    let ty=8;
+    x.fillStyle="rgba(13,16,25,.96)"; x.strokeStyle="#f0b429"; x.lineWidth=1;
+    x.beginPath();
+    if(x.roundRect) x.roundRect(tx,ty,tw,th,7); else x.rect(tx,ty,tw,th);
+    x.fill(); x.stroke();
+    x.textAlign="left";
+    lines.forEach((t,li)=>{ x.fillStyle= li===0? "#ffd166":"#e8ecf6";
+      x.font=(li===0?"700 ":"")+"12px -apple-system";
+      x.fillText(t, tx+9, ty+18+li*16); });
+  }
+}
+function incHover(id, clientX){
+  const st=INC_STATE[id]; if(!st) return;
+  const c=document.getElementById(id), r=c.getBoundingClientRect();
+  const slot=(r.width-64)/st.keys.length;
+  let i=Math.floor((clientX-r.left-48)/slot);
+  if(i<0||i>=st.keys.length) i=null;
+  renderIncChart(id, i);
+}
+["c_inc12","c_inc12b"].forEach(id=>{
+  const c=document.getElementById(id); if(!c) return;
+  c.addEventListener("mousemove", e=>incHover(id, e.clientX));
+  c.addEventListener("mouseleave", ()=>renderIncChart(id, null));
+  c.addEventListener("touchstart", e=>incHover(id, e.touches[0].clientX), {passive:true});
+  c.addEventListener("touchmove",  e=>incHover(id, e.touches[0].clientX), {passive:true});
+  c.addEventListener("touchend",   ()=>setTimeout(()=>renderIncChart(id,null),1500));
+});
 function removeTicker(t){
   if(!confirm("Remove ALL lots of "+t+"?")) return;
   DB.stocks.lots.filter(l=>l.ticker===t).forEach(l=>DB.tomb.push(l.id));
