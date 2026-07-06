@@ -152,10 +152,12 @@
 <!-- ============ DASHBOARD ============ -->
 <div class="tab on" id="dash">
   <div class="card">
-    <div class="note" style="letter-spacing:.8px;font-weight:700;margin-bottom:8px">YOUR TRADES — MANUAL</div>
+    <div class="note" style="letter-spacing:.8px;font-weight:700;margin-bottom:8px">YOUR FUTURES TRADES — MANUAL (TradingView)</div>
     <div class="grid" id="kpis"></div>
     <div class="note" style="letter-spacing:.8px;font-weight:700;margin:16px 0 8px">BOT — v2.3 SYSTEM <span id="botstat" style="font-weight:400"></span></div>
     <div class="grid" id="kpis_bot"></div>
+    <div class="note" style="letter-spacing:.8px;font-weight:700;margin:16px 0 8px">LONG-TERM INVESTING — ROBINHOOD (stocks &amp; dividends)</div>
+    <div class="grid" id="kpis_inv"></div>
   </div>
   <div class="card"><h2>Today &amp; targets <span class="note">(your manual trading)</span></h2>
     <div class="rings" id="rings"></div>
@@ -785,11 +787,24 @@ function importM1(inp){
 
 // ================= stocks =================
 function lots(){ return DB.stocks.lots; }
-function tickers(){ return [...new Set(lots().map(l=>l.ticker))].filter(t=>sharesNow(t)>0.0001); }
-function allTickers(){ return [...new Set(lots().map(l=>l.ticker))]; }
+// current holdings: Robinhood's own unit counts (quotes[t].units) are the source of
+// truth when present — lot history is only a fallback (it can drift from missing
+// history / splits, which is what kept breaking the portfolio value).
+function tickers(){
+  const out=new Set();
+  Object.entries(DB.stocks.quotes||{}).forEach(([t,q])=>{ if((q.units||0)>1e-6) out.add(t); });
+  [...new Set(lots().map(l=>l.ticker))].forEach(t=>{
+    if(!(DB.stocks.quotes||{})[t] && sharesOn(t,"9999")>0.0001) out.add(t); });
+  return [...out];
+}
+function allTickers(){ return [...new Set([...lots().map(l=>l.ticker), ...Object.keys(DB.stocks.quotes||{})])]; }
 function sharesOn(t, date){ return lots().filter(l=>l.ticker===t && l.date<=date)
   .reduce((a,l)=>a+l.shares,0); }
-function sharesNow(t){ return sharesOn(t, "9999"); }
+function sharesNow(t){
+  const q=bq(t);
+  if(q && q.units!==undefined) return q.units;   // broker-authoritative
+  return sharesOn(t, "9999");
+}
 function avgCost(t){
   const q=bq(t); if(q && q.avg>0) return q.avg;   // broker-authoritative
   let sh=0, cost=0;
@@ -1573,7 +1588,9 @@ function kpi(v,l,cls){ return `<div class="kpi"><div class="v ${cls||""}">${v}</
 function renderDash(){
   const eq=equity(); const H=document.getElementById("hdr_eq");
   const pv=tickers().reduce((a,t)=>a+sharesNow(t)*price(t),0);
-  H.textContent=fmt$(eq+pv); H.className = "gold";
+  H.innerHTML=`<span class="gold">${fmt$(eq)}</span><span style="color:var(--dim);font-size:11px;font-weight:600"> FUTURES&nbsp;&nbsp;</span>`+
+    `<span class="gold">${fmt$(pv)}</span><span style="color:var(--dim);font-size:11px;font-weight:600"> STOCKS</span>`;
+  H.className="";
   const m=metrics(DB.trades);
   const rs=DB.trades.map(rMult).filter(r=>r!==null);
   const avgR = rs.length? rs.reduce((a,b)=>a+b,0)/rs.length : null;
@@ -1585,12 +1602,12 @@ function renderDash(){
     else if(strk>0&&ps[i]>0) strk++; else if(strk<0&&ps[i]<=0) strk--; else break; }
   document.getElementById("kpis").innerHTML =
     kpi(fmt$(eq),"TRADING EQUITY", eq>=DB.start+adjSum()?"pos":"neg") +
-    kpi(fmt$(pv),"STOCKS VALUE","gold") +
-    kpi(fmt2(divsAll),"DIVIDENDS ALL-TIME","gold") +
+    kpi(fmt2(m.net),"NET P&L", m.net>=0?"pos":"neg") +
     kpi(fmt2(tnet),"TODAY", tnet>0?"pos":tnet<0?"neg":"") +
     kpi(m.n?(100*m.win).toFixed(0)+"%":"–","WIN RATE", m.win>=0.5?"pos":"") +
     kpi(m.pf?m.pf.toFixed(2):"–","PROFIT FACTOR", m.pf>=1.3?"pos":m.pf&&m.pf<1?"neg":"") +
     kpi(avgR!==null?avgR.toFixed(2)+"R":"–","AVG R", avgR>0?"pos":avgR<0?"neg":"") +
+    kpi(m.n,"TRADES") +
     kpi(strk===0?"–":(strk>0?strk+" W":Math.abs(strk)+" L"),"STREAK", strk>0?"pos":strk<0?"neg":"");
   // bot group — entirely its own numbers, from the Cockpit's data
   const bm=metrics(BOT.trades);
@@ -1612,6 +1629,17 @@ function renderDash(){
     kpi(bstrk===0?"–":(bstrk>0?bstrk+" W":Math.abs(bstrk)+" L"),"BOT STREAK", bstrk>0?"pos":bstrk<0?"neg":"") :
     '<div class="note" style="grid-column:1/-1">no bot fills yet — they arrive here automatically from the Cockpit '+
     (syncConfigured()? 'as soon as the alert pipeline logs a trade.' : 'once you connect Sync (same token).')+'</div>';
+  // long-term investing group — Robinhood stocks & dividends, nothing to do with trading
+  const dayChg=tickers().reduce((a,t)=>{ const mm=MKT[t]||{};
+    return a + (mm.price&&mm.prev? sharesNow(t)*(mm.price-mm.prev):0); },0);
+  const pinc=portfolioIncome();
+  document.getElementById("kpis_inv").innerHTML =
+    kpi(fmt$(pv),"STOCKS VALUE","gold") +
+    kpi(fmt2(dayChg),"DAY CHANGE", dayChg>0?"pos":dayChg<0?"neg":"") +
+    kpi(fmt2(divsAll),"DIVIDENDS ALL-TIME","gold") +
+    kpi(fmt2(pinc.fwd),"FWD INCOME /YR","gold") +
+    kpi(pinc.V>0? (100*pinc.y).toFixed(2)+"%":"–","PORTFOLIO YIELD") +
+    kpi(fmt2(pinc.fwd/12),"AVG /MONTH","gold");
   const wk = weekKey(today()), mo = today().slice(0,7);
   const wnet = DB.trades.filter(t=>weekKey(t.date)===wk).reduce((a,t)=>a+pnl(t),0);
   const mnet = DB.trades.filter(t=>t.date.slice(0,7)===mo).reduce((a,t)=>a+pnl(t),0);
