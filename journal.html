@@ -792,9 +792,11 @@ function lots(){ return DB.stocks.lots; }
 // history / splits, which is what kept breaking the portfolio value).
 function tickers(){
   const out=new Set();
-  Object.entries(DB.stocks.quotes||{}).forEach(([t,q])=>{ if((q.units||0)>1e-6) out.add(t); });
+  const qs=DB.stocks.quotes||{};
+  Object.entries(qs).forEach(([t,q])=>{ if(q.units!==undefined && q.units>1e-6) out.add(t); });
   [...new Set(lots().map(l=>l.ticker))].forEach(t=>{
-    if(!(DB.stocks.quotes||{})[t] && sharesOn(t,"9999")>0.0001) out.add(t); });
+    const q=qs[t];   // quotes without a units field (older sync format) carry no authority
+    if((!q || q.units===undefined) && sharesOn(t,"9999")>0.0001) out.add(t); });
   return [...out];
 }
 function allTickers(){ return [...new Set([...lots().map(l=>l.ticker), ...Object.keys(DB.stocks.quotes||{})])]; }
@@ -860,15 +862,22 @@ function addDiv(){
 function delDiv(id){ DB.tomb.push(id); DB.stocks.divs=DB.stocks.divs.filter(d=>d.id!==id); touched(); }
 function receivedAll(){
   const out=[];
+  const real=DB.stocks.divs;   // broker-recorded + manual payments — the ground truth
   allTickers().forEach(t=>{
+    const mine=real.filter(x=>x.ticker===t);
     ((MKT[t]&&MKT[t].divs)||[]).forEach(d=>{
       if(!d.payment_date || d.payment_date>today()) return;
       const sh=sharesOn(t, d.ex_dividend_date||d.payment_date);
-      if(sh>0.0001) out.push({id:"auto_"+t+"_"+d.payment_date, date:d.payment_date,
+      if(sh<=0.0001) return;
+      // skip the estimated row when a real payment exists within a few days —
+      // otherwise every dividend counts twice (AV estimate + Robinhood record)
+      const pd=new Date(d.payment_date);
+      if(mine.some(x=>Math.abs(new Date(x.date)-pd)<=6*864e5)) return;
+      out.push({id:"auto_"+t+"_"+d.payment_date, date:d.payment_date,
         ticker:t, amount:sh*parseFloat(d.amount||0), auto:true});
     });
   });
-  DB.stocks.divs.forEach(d=>out.push({...d, auto:false}));
+  real.forEach(d=>out.push({...d, auto:false}));
   out.sort((a,b)=>a.date<b.date?1:-1);
   return out;
 }
@@ -2062,7 +2071,14 @@ function mergeDB(a,b){
              divs:uni(a.stocks&&a.stocks.divs, b.stocks&&b.stocks.divs),
              snaps:{...((b.stocks&&b.stocks.snaps)||{}), ...((a.stocks&&a.stocks.snaps)||{})},
              quotes:(()=>{ const qa=(a.stocks&&a.stocks.quotes)||{}, qb=(b.stocks&&b.stocks.quotes)||{};
-               const out={...qb}; for(const k in qa){ if(!out[k] || (qa[k].at||"") >= (out[k].at||"")) out[k]=qa[k]; }
+               const out={...qb};
+               for(const k in qa){ const A=qa[k], B=out[k];
+                 if(!B){ out[k]=A; continue; }
+                 const aAt=A.at||"", bAt=B.at||"";
+                 // strictly newer wins; on a tie the copy that carries broker units wins —
+                 // an old-format copy must never erase the authoritative unit counts
+                 if(aAt>bAt || (aAt===bAt && A.units!==undefined)) out[k]=A;
+               }
                return out; })(),
              targets:(((a.stocks&&a.stocks.targets)||{updated:0}).updated||0) >=
                      (((b.stocks&&b.stocks.targets)||{updated:0}).updated||0)
