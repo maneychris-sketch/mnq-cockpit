@@ -1115,6 +1115,13 @@ function recvCadence(t){   // median gap in days between real received payments
 function ttmIncome(t){
   const av = ttmPerShare(t);
   if(av > 0) return av * sharesNow(t);
+  const m=MKT[t]||{};
+  const hist=divHist(t);
+  if(hist.length){                      // history exists but nothing in the trailing window
+    const f=freqOf(t);                  // (e.g. only declared/future payments): annualize
+    return f.n? parseFloat(hist[hist.length-1].amount)*f.n*sharesNow(t) : 0;
+  }
+  if(anyKey() && !m.divsAt) return 0;   // real data one fetch away — don't guess from old payments
   const h=recvHist(t);
   const g=recvCadence(t);
   if(g && h.length>=2){
@@ -1192,11 +1199,13 @@ function projPayments(horizonDays){
     const h=divHist(t); const f=freqOf(t);
     if(!f.n) return;
     let d, amt;
-    if(h.length){                                  // AV per-share history (incl. declared)
+    if(h.length){                                  // per-share history (incl. declared)
       amt=parseFloat(h[h.length-1].amount)*sharesNow(t);
       d=h[h.length-1].payment_date;
-    } else {                                       // no AV coverage (e.g. TSYY): project
-      const rh=recvHist(t); if(rh.length<2) return;// from what Robinhood actually paid you
+    } else {                                       // no market coverage: project from real payments,
+      const m=MKT[t]||{};                          // but only AFTER a fetch confirmed there's no data —
+      if(anyKey() && !m.divsAt) return;            // old payments reflect old position sizes
+      const rh=recvHist(t); if(rh.length<2) return;
       const last=rh.slice(-4);
       amt=last.reduce((a,x)=>a+x.amount,0)/last.length;
       d=rh[rh.length-1].date;
