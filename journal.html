@@ -151,6 +151,7 @@
 
 <!-- ============ DASHBOARD ============ -->
 <div class="tab on" id="dash">
+  <div id="connectbanner"></div>
   <div class="card">
     <div class="note" style="letter-spacing:.8px;font-weight:700;margin-bottom:8px">YOUR FUTURES TRADES — MANUAL (TradingView)</div>
     <div class="grid" id="kpis"></div>
@@ -509,6 +510,7 @@ function migrate(d){
   d = d || {};
   const s = d.stocks || {};
   return { v:2, start: d.start !== undefined ? d.start : 2000, startTs: d.startTs || 0,
+    keys: d.keys || { av:"", pg:"", updated:0 },
     trades: Array.isArray(d.trades) ? d.trades : [],
     adj: Array.isArray(d.adj) ? d.adj : [], tomb: Array.isArray(d.tomb) ? d.tomb : [],
     goals: d.goals || { day:50, week:250, month:1000, maxloss:100, maxtrades:5, updated:0 },
@@ -906,8 +908,16 @@ function saveKey(){
   if(!av && !pg){ alert("paste at least one API key"); return; }
   if(av) localStorage.setItem(AVKEY,av);
   if(pg) localStorage.setItem(PGKEY,pg);
+  // keys ride along in the private cloud copy so a new device/window only ever
+  // needs the one GitHub token — quote-only keys, private gist
+  DB.keys={ av: localStorage.getItem(AVKEY)||"", pg: pgk()||"", updated: Date.now() };
   document.getElementById("avkey").value=""; document.getElementById("pgkey").value="";
-  alert("Saved on this device. Hit Refresh data."); render();
+  alert("Saved — and synced to your other devices."); touched();
+}
+function adoptKeys(){   // pull synced keys into this device's storage
+  const k=DB.keys||{};
+  if(k.av && k.av!==localStorage.getItem(AVKEY)) localStorage.setItem(AVKEY, k.av);
+  if(k.pg && k.pg!==pgk()) localStorage.setItem(PGKEY, k.pg);
 }
 // ---- Polygon.io (free tier: no daily cap, 5 calls/min — our 13s pacing stays under it) ----
 async function pgCall(path){
@@ -1788,6 +1798,15 @@ function metrics(ts){
 function kpi(v,l,cls){ return `<div class="kpi"><div class="v ${cls||""}">${v}</div><div class="l">${l}</div></div>`; }
 
 function renderDash(){
+  const fresh=!syncConfigured() && !DB.trades.length && !lots().length;
+  document.getElementById("connectbanner").innerHTML = fresh?
+    `<div class="card" style="border-color:rgba(240,180,41,.6)">
+       <h2 style="color:var(--gold)">&#9888;&#65039; This device isn't connected to your data yet</h2>
+       <div class="note" style="margin-top:6px">Nothing is lost — your trades, stocks, dividends and API keys
+         all live in your private cloud copy. Paste your GitHub token once and everything loads right back.</div>
+       <button class="act" style="margin-top:12px" onclick="goSync()">Open Sync &amp; connect</button>
+     </div>` : "";
+  if(fresh) setChip("err","not connected — data in cloud");
   const eq=equity(); const H=document.getElementById("hdr_eq");
   const pv=tickers().reduce((a,t)=>a+sharesNow(t)*price(t),0);
   H.innerHTML=`<span class="gold">${fmt$(eq)}</span><span style="color:var(--dim);font-size:11px;font-weight:600"> FUTURES&nbsp;&nbsp;</span>`+
@@ -2260,7 +2279,8 @@ function mergeDB(a,b){
     return [...m.values()]; };
   const sNew=(a.startTs||0)>=(b.startTs||0)?a:b;
   const gNew=((a.goals&&a.goals.updated)||0)>=((b.goals&&b.goals.updated)||0)?a:b;
-  const out={ v:2, start:sNew.start, startTs:sNew.startTs||0,
+  const kNew=((a.keys&&a.keys.updated)||0)>=((b.keys&&b.keys.updated)||0)?(a.keys||{av:"",pg:"",updated:0}):b.keys;
+  const out={ v:2, start:sNew.start, startTs:sNew.startTs||0, keys:kNew,
     trades:uni(a.trades,b.trades), adj:uni(a.adj,b.adj), tomb:[...tomb], goals:gNew.goals,
     stocks:{ lots:uni(a.stocks&&a.stocks.lots, b.stocks&&b.stocks.lots),
              divs:uni(a.stocks&&a.stocks.divs, b.stocks&&b.stocks.divs),
@@ -2321,7 +2341,7 @@ async function syncNow(){
     if(f) remoteRaw=f.truncated? await (await fetch(f.raw_url)).json() : JSON.parse(f.content||"{}");
     const merged=mergeDB(DB, migrate(remoteRaw));
     const ms=JSON.stringify(merged);
-    if(ms!==JSON.stringify(DB)){ DB=merged; persist(); render(); }
+    if(ms!==JSON.stringify(DB)){ DB=merged; persist(); adoptKeys(); render(); }
     if(ms!==JSON.stringify(migrate(remoteRaw)))
       await gh("PATCH","https://api.github.com/gists/"+SYNC.gistId,{files:{[GISTFILE]:{content:ms}}});
     lastPullAt=Date.now();
@@ -2385,6 +2405,11 @@ window.addEventListener("resize", render);
 window.addEventListener("online", ()=>syncNow());
 window.addEventListener("focus", maybePull);
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) maybePull(); });
+if((localStorage.getItem(AVKEY)||pgk()) && !(DB.keys&&DB.keys.updated)){
+  DB.keys={ av: localStorage.getItem(AVKEY)||"", pg: pgk()||"", updated: Date.now() };
+  persist(); scheduleSync();
+}
+adoptKeys();
 sortTrades(); render();
 if(syncConfigured()) syncNow();
 // auto-fetch dividend histories once a day so held stocks appear on the calendar
