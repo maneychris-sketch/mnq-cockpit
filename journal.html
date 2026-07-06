@@ -833,11 +833,20 @@ function sharesNow(t){
   return sharesOn(t, "9999");
 }
 function avgCost(t){
-  const q=bq(t); if(q && q.avg>0) return q.avg;   // broker-authoritative
+  const q=bq(t); const px=price(t);
+  // broker-authoritative — unless the avg is implausible vs the live price
+  // (SnapTrade crypto quirk: DOGE avg came back ~700x the price)
+  if(q && q.avg>0 && !(px>0 && (q.avg>px*20 || q.avg<px/20))) return q.avg;
   let sh=0, cost=0;
+  // negative-clamped walk: day-trading churn (same-day sells sorting before their
+  // buys) used to drive tracked shares negative and poison the cost basis — DOGE
+  // showed a $54.98 avg on a 7-cent coin. Clamp at flat, reset basis when flat.
   lots().filter(l=>l.ticker===t).sort((a,b)=>a.date<b.date?-1:1).forEach(l=>{
-    if(l.shares>0){ cost+=l.shares*l.price; sh+=l.shares; }
-    else { const frac=Math.min(1, -l.shares/Math.max(sh,1e-9)); cost*=(1-frac); sh+=l.shares; }
+    if(l.shares>0){ if(sh<=1e-9) cost=0; cost+=l.shares*l.price; sh+=l.shares; }
+    else { const sell=Math.min(-l.shares, sh);
+      if(sh>1e-9) cost*=(1-sell/sh);
+      sh=Math.max(0, sh+l.shares);
+      if(sh<=1e-9) cost=0; }
   });
   return sh>0.0001? cost/sh : 0;
 }
@@ -1443,6 +1452,28 @@ function annualByYear(t){
     by[y]=(by[y]||0)+parseFloat(d.amount); });
   return by;
 }
+function gradeWhy(t){
+  const r=rateStock(t);
+  const L=[];
+  L.push(r.yld<=0? "no dividend yield — biggest penalty" :
+    "yield "+r.yld.toFixed(2)+"% — "+(r.yld<1?"safe but income-light (small plus)":
+     r.yld<=4?"the healthy sweet spot (big plus)": r.yld<=6?"elevated but workable (plus)":
+     r.yld<=10?"high — sustainability watch (neutral)":"danger zone (penalty)"));
+  if(r.payout!==null) L.push("payout ratio "+r.payout.toFixed(0)+"% — "+
+    (r.payout<60?"comfortable (plus)":r.payout<80?"manageable (small plus)":
+     r.payout<100?"tight (neutral)":"paying out more than it earns (penalty)"));
+  else L.push("payout ratio unknown (no earnings data)");
+  L.push(r.streak? r.streak+" straight year"+(r.streak>1?"s":"")+" of raises (plus per year, up to +20)" :
+    "no active raise streak");
+  if(r.cagr!==null) L.push("dividend growth "+(r.cagr>0?"+":"")+r.cagr.toFixed(1)+"%/yr — "+
+    (r.cagr>10?"excellent (plus)":r.cagr>5?"strong (plus)":r.cagr>2?"decent (small plus)":
+     r.cagr>0?"slow (tiny plus)":"shrinking (penalty)"));
+  else L.push("not enough history to measure growth");
+  L.push("pays "+r.freq.label+(r.freq.n>=12?" — smoothest income (plus)":
+    r.freq.n>=4?" — standard rhythm (small plus)": r.freq.n>0?"":" — no payment rhythm (big penalty)"));
+  return "Dividend score "+r.score+"/100 — grade "+r.grade+"\n\u2022 "+L.join("\n\u2022 ");
+}
+function showGrade(t){ alert(gradeWhy(t)); }
 function rateStock(t){
   const m=MKT[t]||{}; const ov=m.ov||{};
   const px=m.price||price(t)||0;
@@ -1535,7 +1566,8 @@ function renderScreen(){
   const ys=yieldSafety(r.yld);
   out.innerHTML=`
     <div class="row" style="align-items:center;margin-top:10px">
-      <div class="ratebadge" style="background:${col}22;color:${col};border:1px solid ${col}55">${r.grade}</div>
+      <div class="ratebadge" style="background:${col}22;color:${col};border:1px solid ${col}55;cursor:help"
+        title="${gradeWhy(t).replace(/"/g,'&quot;')}" onclick="showGrade('${t}')">${r.grade}</div>
       <div style="flex:1;min-width:200px">
         <div style="font-weight:800;font-size:16px">${ov.Name||t} <span class="note">${t}${held?" · you own "+sharesNow(t).toFixed(2).replace(/\.00$/,"")+" sh":""}</span></div>
         <div class="note">${ov.Sector||"–"} · ${ov.Industry||""} · dividend score ${r.score}/100</div>
@@ -1651,7 +1683,7 @@ function renderInterested(){
       <td>${m.price?fmt2(m.price):"–"}</td>
       <td class="${yieldSafety(r.yld).cls}">${r.yld?r.yld.toFixed(2)+"%":"–"}</td>
       <td>${r.freq.label}</td>
-      <td>${hasData?`<span class="chip" style="background:${col}22;color:${col}">${r.grade}</span>`:"–"}</td>
+      <td>${hasData?`<span class="chip" style="background:${col}22;color:${col};cursor:help" title="${gradeWhy(t).replace(/"/g,'&quot;')}" onclick="showGrade('${t}')">${r.grade}</span>`:"–"}</td>
       <td>${nextEx?fmtD(nextEx):"–"}</td>
       <td><button class="act gray" style="padding:3px 9px" onclick="intTest('${t}')">test</button>
           <button class="act gray" style="padding:3px 9px" onclick="intView('${t}')">view</button>
@@ -2035,7 +2067,8 @@ function renderStocks(){
     const gr=rateStock(t);
     const grCol=gr.score>=80?"#2ee6a8":gr.score>=65?"#f0b429":gr.score>=50?"#ffb74d":"#ff5d6c";
     const grCell=divHist(t).length?
-      `<span class="chip" style="background:${grCol}22;color:${grCol}" title="dividend score ${gr.score}/100">${gr.grade}</span>`:"–";
+      `<span class="chip" style="background:${grCol}22;color:${grCol};cursor:help" title="${gradeWhy(t).replace(/"/g,'&quot;')}"
+         onclick="showGrade('${t}')">${gr.grade}</span>`:"–";
     tb.insertAdjacentHTML("beforeend",`<tr>
       <td><b>${t}</b></td><td>${grCell}</td><td>${sh.toFixed(4).replace(/\.?0+$/,"")}</td><td>${fmt2(ac)}</td>
       <td>${px? fmt2(px):"–"}</td>
