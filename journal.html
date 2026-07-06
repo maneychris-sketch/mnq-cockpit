@@ -238,14 +238,16 @@
   <div class="card"><div class="grid" id="skpis"></div></div>
   <div class="card"><h2>Market data <span class="note" id="mktstat"></span></h2>
     <div class="row">
-      <input type="password" id="avkey" placeholder="Alpha Vantage API key (free)" style="flex:1;min-width:200px" autocomplete="off">
-      <button class="act gray" onclick="saveKey()">Save key</button>
+      <input type="password" id="pgkey" placeholder="Polygon.io API key (free — no daily limit)" style="flex:1;min-width:200px" autocomplete="off">
+      <input type="password" id="avkey" placeholder="Alpha Vantage key (optional)" style="flex:1;min-width:180px" autocomplete="off">
+      <button class="act gray" onclick="saveKey()">Save keys</button>
       <button class="act" onclick="refreshMkt()">Refresh data</button>
     </div>
-    <div class="note">One-time: get a free key at alphavantage.co/support/#api-key (just your email).
-      The app then fetches prices, dividend histories, and the payout calendar by itself — the key stays
-      on this device only, never synced. Free tier = 25 requests/day, so the app caches hard: quotes
-      refresh daily, dividend histories weekly.</div>
+    <div class="note"><b>Polygon.io is the main feed</b> — free key at polygon.io (email signup), NO daily
+      cap (just a 5-per-minute pace the app respects automatically). It powers dividend histories, the
+      calendar, the screener and the what-if tester — research all you want. Alpha Vantage (25/day) is
+      optional on top: it only adds the day-change % and the news sentiment. Robinhood still supplies real
+      prices for what you own. Keys stay on this device only, never synced.</div>
   </div>
   <div class="card"><h2>Auto-import positions <span class="note">(M1 Finance / brokerage activity CSV)</span></h2>
     <div class="row">
@@ -499,7 +501,9 @@
 const SYMS = { MNQ:2, NQ:20, MES:5, ES:50, MYM:0.5, YM:5, MGC:10, GC:100,
                M2K:5, RTY:50, MCL:100, CL:1000, OTHER:1 };
 const KEY = "trade_journal", SYNCKEY = "trade_journal_sync", GISTFILE = "manual_trade_journal.json";
-const MKTKEY = "journal_mkt", AVKEY = "journal_avkey";
+const MKTKEY = "journal_mkt", AVKEY = "journal_avkey", PGKEY = "journal_pgkey";
+function pgk(){ return localStorage.getItem(PGKEY); }
+function anyKey(){ return !!(localStorage.getItem(AVKEY) || pgk()); }
 
 function migrate(d){
   d = d || {};
@@ -897,59 +901,103 @@ function receivedAll(){
   return out;
 }
 function saveKey(){
-  const k=document.getElementById("avkey").value.trim();
-  if(!k){ alert("paste your Alpha Vantage key"); return; }
-  localStorage.setItem(AVKEY,k); document.getElementById("avkey").value="";
-  alert("Key saved on this device. Hit Refresh data."); render();
+  const av=document.getElementById("avkey").value.trim();
+  const pg=document.getElementById("pgkey").value.trim();
+  if(!av && !pg){ alert("paste at least one API key"); return; }
+  if(av) localStorage.setItem(AVKEY,av);
+  if(pg) localStorage.setItem(PGKEY,pg);
+  document.getElementById("avkey").value=""; document.getElementById("pgkey").value="";
+  alert("Saved on this device. Hit Refresh data."); render();
+}
+// ---- Polygon.io (free tier: no daily cap, 5 calls/min — our 13s pacing stays under it) ----
+async function pgCall(path){
+  const key=pgk(); if(!key) throw new Error("no pg key");
+  const r=await fetch("https://api.polygon.io"+path+(path.includes("?")?"&":"?")+"apiKey="+key);
+  if(r.status===429) throw new Error("rate");
+  return r.json();
+}
+async function pgFetchQuote(t,m){
+  const j=await pgCall(`/v2/aggs/ticker/${t}/prev?adjusted=true`);
+  const r=(j.results||[])[0];
+  if(r && r.c>0){ m.price=r.c; m.quoteAt=Date.now(); }   // EOD close (free tier)
+}
+async function pgFetchDivs(t,m){
+  const j=await pgCall(`/v3/reference/dividends?ticker=${t}&limit=60`);
+  if(Array.isArray(j.results) && j.results.length){
+    m.divs=j.results.filter(d=>d.pay_date && d.cash_amount>0).map(d=>({
+      ex_dividend_date:d.ex_dividend_date||"", payment_date:d.pay_date, amount:String(d.cash_amount)}));
+  }
+  m.divsAt=Date.now();
+}
+async function pgFetchDetails(t,m){
+  const j=await pgCall(`/v3/reference/tickers/${t}`);
+  const d=j.results;
+  if(d && !(m.ov && m.ov.EPS)){          // never clobber a richer Alpha Vantage profile
+    m.ov=Object.assign({}, m.ov||{}, {Symbol:t, Name:d.name||t,
+      Sector:((d.sic_description||"").toUpperCase()||undefined)});
+  }
+  m.ovAt=Date.now();
 }
 function callsToday(){ const c=MKT._calls||{};
   return c.date===today()? c.n||0 : 0; }
 function bumpCalls(){ MKT._calls={date:today(), n:callsToday()+1}; persistMkt(); }
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function refreshMkt(){
-  const key=localStorage.getItem(AVKEY);
-  if(!key){ document.getElementById("mktstat").textContent="— no API key saved yet"; return; }
+  const avKey=localStorage.getItem(AVKEY);
+  const usePG=!!pgk();
+  if(!avKey && !usePG){ document.getElementById("mktstat").textContent="— no API key saved yet"; return; }
   const ts=tickers();          // held tickers only — sold ones were burning the budget
   if(!ts.length){ document.getElementById("mktstat").textContent="— add a lot first"; return; }
   const stat=document.getElementById("mktstat");
   const stale=(m,k,h)=>!m[k] || (Date.now()-m[k]) > h*3600e3;
   // DIVIDEND HISTORIES FIRST — they power the calendar, income and projections.
-  // Robinhood already supplies real prices twice a day, so AV quotes are only the
-  // day-change % and go last. Never-fetched histories outrank stale refreshes.
+  // With a Polygon key they're unlimited; Alpha Vantage jobs stay budget-capped
+  // (day-change % is decoration — Robinhood supplies real prices twice a day).
   const plan=[];
   ts.forEach(t=>{ const m=MKT[t]=MKT[t]||{};
-    if(!(m.divs&&m.divs.length) && stale(m,"divsAt",144)) plan.push({t, fn:"DIVIDENDS", what:"dividends"}); });
+    if(!(m.divs&&m.divs.length) && stale(m,"divsAt",144)) plan.push({t, kind:"divs", src:usePG?"pg":"av"}); });
   ts.forEach(t=>{ const m=MKT[t];
-    if(m.divs&&m.divs.length && stale(m,"divsAt",144)) plan.push({t, fn:"DIVIDENDS", what:"dividends"}); });
+    if(m.divs&&m.divs.length && stale(m,"divsAt",144)) plan.push({t, kind:"divs", src:usePG?"pg":"av"}); });
   ts.forEach(t=>{ const m=MKT[t];
-    if(stale(m,"quoteAt",20)) plan.push({t, fn:"GLOBAL_QUOTE", what:"quote"}); });
+    if(stale(m,"quoteAt",20)) plan.push({t, kind:"quote", src:usePG?"pg":"av"}); });
   let n=0;
   for(const job of plan){
-    if(callsToday()>=23){ stat.textContent="— daily API budget reached (25); resumes tomorrow"; break; }
+    if(job.src==="av" && callsToday()>=23){ stat.textContent="— AV daily budget reached (25); resumes tomorrow"; break; }
     const t=job.t, m=MKT[t];
     try{
-      stat.textContent="— fetching "+t+" "+job.what+"…";
-      const r=await fetch(`https://www.alphavantage.co/query?function=${job.fn}&symbol=${t}&apikey=${key}`);
-      const j=await r.json(); bumpCalls(); n++;
-      if(job.fn==="DIVIDENDS"){
-        if(Array.isArray(j.data)){ m.divs=j.data; m.divsAt=Date.now(); }
-        else m.divsAt=Date.now();                       // AV has nothing (e.g. TSYY) — don't retry all week
+      stat.textContent="— fetching "+t+" "+(job.kind==="divs"?"dividends":"quote")+
+        (job.src==="pg"?" (Polygon)":"")+"…";
+      if(job.src==="pg"){
+        if(job.kind==="divs") await pgFetchDivs(t,m); else await pgFetchQuote(t,m);
       } else {
-        const q=j["Global Quote"]||{};
-        if(q["05. price"]){ m.price=parseFloat(q["05. price"]); m.prev=parseFloat(q["08. previous close"]);
-          m.chg=parseFloat((q["10. change percent"]||"0").replace("%","")); m.quoteAt=Date.now(); }
+        const fn=job.kind==="divs"?"DIVIDENDS":"GLOBAL_QUOTE";
+        const r=await fetch(`https://www.alphavantage.co/query?function=${fn}&symbol=${t}&apikey=${avKey}`);
+        const j=await r.json(); bumpCalls();
+        if(fn==="DIVIDENDS"){
+          if(Array.isArray(j.data)){ m.divs=j.data; }
+          m.divsAt=Date.now();                        // even if empty — don't retry all week
+        } else {
+          const q=j["Global Quote"]||{};
+          if(q["05. price"]){ m.price=parseFloat(q["05. price"]); m.prev=parseFloat(q["08. previous close"]);
+            m.chg=parseFloat((q["10. change percent"]||"0").replace("%","")); m.quoteAt=Date.now(); }
+        }
       }
+      n++;
       persistMkt();
       await sleep(13000);
-    }catch(e){ stat.textContent="— fetch error on "+t; }
+    }catch(e){
+      if(e.message==="rate"){ stat.textContent="— polygon pace limit, slowing down…"; await sleep(25000); }
+      else stat.textContent="— fetch error on "+t;
+    }
   }
   // portfolio snapshot
   const val=tickers().reduce((a,t)=>a+sharesNow(t)*price(t),0);
   if(val>0){ DB.stocks.snaps[today()]=Math.round(val*100)/100; persist(); scheduleSync(); }
   persistMkt(); render();
   document.getElementById("mktstat").textContent =
-    n? `— updated ${n} feeds · ${callsToday()}/25 calls today` :
-       `— data fresh · ${callsToday()}/25 calls today`;
+    (n? `— updated ${n} feeds` : `— data fresh`) +
+    (usePG? " · Polygon: no daily limit" : "") +
+    (avKey? ` · AV ${callsToday()}/25 today` : "");
 }
 
 // ================= account / goals =================
@@ -1403,30 +1451,49 @@ function rateStock(t){
 async function fetchStock(t, stat){   // quote + dividend history + profile, cache-first
   const m=MKT[t]=MKT[t]||{};
   const stale=(k,h)=>!m[k] || (Date.now()-m[k]) > h*3600e3;
+  const usePG=!!pgk();
   try{
-    if(stale("quoteAt",20)){ stat.textContent="fetching quote… (~15s per feed, free API)";
-      const j=await avCall("function=GLOBAL_QUOTE&symbol="+t);
-      const q=j["Global Quote"]||{};
-      if(q["05. price"]){ m.price=parseFloat(q["05. price"]); m.prev=parseFloat(q["08. previous close"]);
-        m.chg=parseFloat((q["10. change percent"]||"0").replace("%","")); m.quoteAt=Date.now(); }
+    if(stale("quoteAt",20)){ stat.textContent="fetching quote… (~15s per feed, free tier pacing)";
+      if(usePG){ await pgFetchQuote(t,m); }
+      else{
+        const j=await avCall("function=GLOBAL_QUOTE&symbol="+t);
+        const q=j["Global Quote"]||{};
+        if(q["05. price"]){ m.price=parseFloat(q["05. price"]); m.prev=parseFloat(q["08. previous close"]);
+          m.chg=parseFloat((q["10. change percent"]||"0").replace("%","")); m.quoteAt=Date.now(); }
+      }
       persistMkt(); await sleep(13000); }
     if(stale("divsAt",144)){ stat.textContent="fetching dividend history…";
-      const j=await avCall("function=DIVIDENDS&symbol="+t);
-      if(Array.isArray(j.data)){ m.divs=j.data; m.divsAt=Date.now(); }
+      if(usePG){ await pgFetchDivs(t,m); }
+      else{
+        const j=await avCall("function=DIVIDENDS&symbol="+t);
+        if(Array.isArray(j.data)){ m.divs=j.data; }
+        m.divsAt=Date.now();
+      }
       persistMkt(); await sleep(13000); }
     if(stale("ovAt",168)){ stat.textContent="fetching company profile…";
-      const j=await avCall("function=OVERVIEW&symbol="+t);
-      if(j && j.Symbol){ m.ov=j; m.ovAt=Date.now(); }
+      if(usePG){ await pgFetchDetails(t,m);
+        // enrich with AV fundamentals (EPS → payout ratio) only when budget is comfy
+        if(localStorage.getItem(AVKEY) && callsToday()<20 && !(m.ov&&m.ov.EPS)){
+          try{ const j=await avCall("function=OVERVIEW&symbol="+t);
+            if(j && j.Symbol) m.ov=Object.assign({}, m.ov||{}, j); }catch(e2){}
+        }
+      } else {
+        const j=await avCall("function=OVERVIEW&symbol="+t);
+        if(j && j.Symbol){ m.ov=j; m.ovAt=Date.now(); }
+      }
       persistMkt(); }
-    stat.textContent=callsToday()+"/25 API calls used today";
-  }catch(e){ stat.textContent = e.message==="budget"?
-      "daily API budget used up — try tomorrow" : e.message==="no key"? "no API key saved":"fetch error — try again"; }
+    stat.textContent = usePG? "done · Polygon (no daily limit)"+
+        (localStorage.getItem(AVKEY)? " · AV "+callsToday()+"/25":"") :
+        callsToday()+"/25 API calls used today";
+  }catch(e){ stat.textContent = e.message==="rate"? "polygon pace limit — wait a few seconds and retry" :
+      e.message==="budget"? "daily API budget used up — try tomorrow" :
+      e.message==="no key"||e.message==="no pg key"? "no API key saved" : "fetch error — try again"; }
 }
 async function screenStock(){
   const t=document.getElementById("sc_tick").value.trim().toUpperCase();
   const stat=document.getElementById("sc_stat");
   if(!t){ stat.textContent="type a ticker first"; return; }
-  if(!localStorage.getItem(AVKEY)){ stat.textContent="save your Alpha Vantage key on the Stocks tab first"; return; }
+  if(!anyKey()){ stat.textContent="save an API key on the Stocks tab first (Polygon recommended)"; return; }
   await fetchStock(t, stat);
   MKT._lastScreen=t; persistMkt();
   renderScreen();
@@ -1479,7 +1546,7 @@ async function whatIf(){
   const t=document.getElementById("wi_tick").value.trim().toUpperCase();
   const stat=document.getElementById("wi_stat");
   if(!t){ stat.textContent="type a ticker first"; return; }
-  if(!localStorage.getItem(AVKEY)){ stat.textContent="save your Alpha Vantage key on the Stocks tab first"; return; }
+  if(!anyKey()){ stat.textContent="save an API key on the Stocks tab first (Polygon recommended)"; return; }
   await fetchStock(t, stat);
   MKT._lastWhatIf=t; persistMkt();
   renderWhatIf();
@@ -1559,7 +1626,7 @@ function newsSug(t, s){
 async function fetchNews(){
   const ts=tickers(); const stat=document.getElementById("newsstat");
   if(!ts.length){ stat.textContent="add holdings first"; return; }
-  if(!localStorage.getItem(AVKEY)){ stat.textContent="save your Alpha Vantage key on the Stocks tab first"; return; }
+  if(!localStorage.getItem(AVKEY)){ stat.textContent="news sentiment needs the Alpha Vantage key (Stocks tab) — 1 call covers all holdings"; return; }
   try{
     stat.textContent="fetching news…";
     const j=await avCall("function=NEWS_SENTIMENT&sort=LATEST&limit=50&tickers="+ts.join(","));
@@ -1879,7 +1946,9 @@ function renderStocks(){
     kpi(totVal>0? (100*fwd/totVal).toFixed(2)+"%":"–","PORTFOLIO YIELD") +
     kpi(totCost>0? (100*fwd/totCost).toFixed(2)+"%":"–","YIELD ON COST");
   document.getElementById("avkey").placeholder =
-    localStorage.getItem(AVKEY)? "API key saved ✓ (paste to replace)" : "Alpha Vantage API key (free)";
+    localStorage.getItem(AVKEY)? "Alpha Vantage saved ✓" : "Alpha Vantage key (optional)";
+  document.getElementById("pgkey").placeholder =
+    pgk()? "Polygon saved ✓ (paste to replace)" : "Polygon.io API key (free — no daily limit)";
   // holdings
   const tb=document.querySelector("#htab tbody"); tb.innerHTML="";
   ts.forEach(t=>{
@@ -2321,7 +2390,7 @@ if(syncConfigured()) syncNow();
 // auto-fetch dividend histories once a day so held stocks appear on the calendar
 // without having to remember the Refresh button (runs only when something's missing/stale)
 (function(){
-  if(!localStorage.getItem(AVKEY)) return;
+  if(!anyKey()) return;
   if(Date.now()-parseInt(localStorage.getItem("journal_autofetch")||"0") < 20*3600e3) return;
   const need=tickers().some(t=>{ const m=MKT[t]||{};
     return !(m.divs&&m.divs.length)? !m.divsAt || Date.now()-m.divsAt>144*3600e3 : Date.now()-m.divsAt>144*3600e3; });
