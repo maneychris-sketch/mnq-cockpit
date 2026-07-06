@@ -232,6 +232,9 @@
     <div class="note" id="hnote"></div>
   </div>
   <div class="card"><h2>Allocation</h2><canvas id="c_alloc" style="height:230px"></canvas><div class="legend" id="alloc_leg"></div></div>
+  <div class="card"><h2>Dividend yield breakdown <span class="note">(annual income by holding &middot; combined yield in the center)</span></h2>
+    <canvas id="c_yield" style="height:230px"></canvas><div class="legend" id="yield_leg"></div>
+    <div id="ysafety" class="note" style="margin-top:12px"></div></div>
   <div class="card"><h2>Dividend payout calendar <span class="note">(declared &amp; upcoming)</span></h2>
     <table id="caltab"><thead><tr><th>Pay date</th><th>Ticker</th><th>Ex-date</th><th>Per share</th><th>Your shares</th><th>Est. payment</th></tr></thead><tbody></tbody></table>
     <div class="note" id="calnote"></div>
@@ -765,9 +768,9 @@ function drawRHist(id, rs){
     x.fillText(edges[i]+"R", 52+i*((w-70)/bins.length)+bw/2, h-6); });
 }
 const PALETTE=["#f0b429","#4d7cfe","#2ee6a8","#ff5d6c","#b57bff","#ffd166","#4dd0e1","#ff8a65","#aed581","#f48fb1"];
-function drawDonut(id, legId, items){
+function drawDonut(id, legId, items, ctrTop, ctrBot, emptyMsg){
   const el=document.getElementById(legId);
-  if(!items.length){ blank(id,"add holdings to see allocation"); el.innerHTML=""; return; }
+  if(!items.length){ blank(id, emptyMsg||"add holdings to see allocation"); el.innerHTML=""; return; }
   const {x,w,h}=cv(id);
   const total=items.reduce((a,i)=>a+i.val,0)||1;
   const cx=w/2, cyy=h/2, R=Math.min(w,h)/2-14;
@@ -778,9 +781,30 @@ function drawDonut(id, legId, items){
     x.fillStyle=PALETTE[i%PALETTE.length]; x.fill(); a0=a1; });
   x.beginPath(); x.arc(cx,cyy,R*0.62,0,7); x.fillStyle="#12151f"; x.fill();
   x.fillStyle="#e8ecf6"; x.font="700 16px -apple-system"; x.textAlign="center";
-  x.fillText(fmt$(total), cx, cyy+1);
-  x.fillStyle="#8b94ac"; x.font="10px -apple-system"; x.fillText("PORTFOLIO", cx, cyy+16);
-  el.innerHTML=items.map((it,i)=>`<span><span class="sw" style="background:${PALETTE[i%PALETTE.length]}"></span>${it.label} ${(100*it.val/total).toFixed(1)}%</span>`).join("");
+  x.fillText(ctrTop!==undefined? ctrTop : fmt$(total), cx, cyy+1);
+  x.fillStyle="#8b94ac"; x.font="10px -apple-system";
+  x.fillText(ctrBot!==undefined? ctrBot : "PORTFOLIO", cx, cyy+16);
+  el.innerHTML=items.map((it,i)=>`<span><span class="sw" style="background:${PALETTE[i%PALETTE.length]}"></span>${it.label} ${it.tag!==undefined? it.tag : (100*it.val/total).toFixed(1)+"%"}</span>`).join("");
+}
+
+// income per holding: Alpha Vantage history first, else actual received last 365d
+function ttmIncome(t){
+  const av = ttmPerShare(t);
+  if(av > 0) return av * sharesNow(t);
+  const cut = new Date(Date.now()-365*864e5).toISOString().slice(0,10);
+  return receivedAll().filter(d=>d.ticker===t && d.date>=cut).reduce((a,d)=>a+d.amount,0);
+}
+function holdingYield(t){
+  const v = sharesNow(t)*price(t);
+  return v>0 ? 100*ttmIncome(t)/v : 0;
+}
+function yieldSafety(y){
+  if(!y || y<=0)  return {t:"NO DATA", cls:"",    msg:"no dividend history yet — refresh market data or wait for the daily sync"};
+  if(y < 1)       return {t:"LOW",     cls:"",    msg:"very safe but income-light — growth-tilted holdings"};
+  if(y <= 4)      return {t:"HEALTHY", cls:"pos", msg:"the sustainable sweet spot — most quality dividend payers live here"};
+  if(y <= 6)      return {t:"ELEVATED",cls:"amb", msg:"fine for REITs and utilities, but worth checking payout ratios"};
+  if(y <= 10)     return {t:"HIGH",    cls:"amb", msg:"sustainability risk — few companies maintain this without cuts"};
+  return           {t:"DANGER",  cls:"neg", msg:"yield-trap territory — payouts this size usually come with principal erosion (typical of covered-call / YieldBoost ETFs: the income is real but NAV often bleeds)"};
 }
 
 // ================= renders =================
@@ -930,7 +954,7 @@ function renderStocks(){
       <td>${totVal>0&&px? (100*val/totVal).toFixed(1)+"%":"–"}</td>
       <td class="${gain>=0?'pos':'neg'}">${px? fmt2(gain):"–"}</td>
       <td class="${gain>=0?'pos':'neg'}">${px&&ac? (100*gain/(sh*ac)).toFixed(1)+"%":"–"}</td>
-      <td>${px&&ttm? (100*ttm/px).toFixed(2)+"%":"–"}</td>
+      <td class="${yieldSafety(px&&ttm?100*ttm/px:0).cls}">${px&&ttm? (100*ttm/px).toFixed(2)+"%":"–"}</td>
       <td>${ac&&ttm? (100*ttm/ac).toFixed(2)+"%":"–"}</td>
       <td class="gold">${ttm? fmt2(ttm*sh):"–"}</td>
       <td><button class="act danger" style="padding:3px 9px" title="remove all lots"
@@ -941,6 +965,21 @@ function renderStocks(){
     "Avg cost and base price come straight from Robinhood; Alpha Vantage adds live day-change, yields and the dividend calendar." : "";
   drawDonut("c_alloc","alloc_leg", ts.filter(t=>price(t)>0)
     .map(t=>({label:t, val:sharesNow(t)*price(t)})).sort((a,b)=>b.val-a.val));
+  // dividend yield donut: slices = annual income $, center = combined yield
+  const incItems = ts.map(t=>({label:t, val:ttmIncome(t), tag:holdingYield(t).toFixed(1)+"%"}))
+    .filter(i=>i.val>0.005).sort((a,b)=>b.val-a.val);
+  const incTotal = incItems.reduce((a,i)=>a+i.val,0);
+  const comboYield = totVal>0 ? 100*incTotal/totVal : 0;
+  drawDonut("c_yield","yield_leg", incItems,
+    comboYield.toFixed(2)+"%", fmt2(incTotal)+" / YR",
+    "no dividend income yet — refresh market data");
+  const ps = yieldSafety(comboYield);
+  let worst=null;
+  ts.forEach(t=>{ const y=holdingYield(t); if(y>10 && (!worst||y>worst.y)) worst={t,y}; });
+  document.getElementById("ysafety").innerHTML =
+    `Portfolio yield safety: <b class="${ps.cls}">${ps.t}</b> — ${ps.msg}` +
+    (worst? `<br>&#9888;&#65039; Highest-risk holding: <b>${worst.t}</b> at <b class="neg">${worst.y.toFixed(1)}%</b> — ` +
+      yieldSafety(worst.y).msg : "");
   // calendar
   const cb=document.querySelector("#caltab tbody"); cb.innerHTML="";
   const up=[];
