@@ -1,4 +1,4 @@
-const CACHE = "mnq-cockpit-v2";
+const CACHE = "mnq-cockpit-v3";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest",
                "./icon-180.png", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png",
                "./journal.html", "./journal.webmanifest", "./journal-icon-180.png",
