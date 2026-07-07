@@ -91,6 +91,12 @@
   .card.clps > *:not(h2) { display:none; }
   .card.clps { padding-bottom:12px; }
   #dcal { display:grid; grid-template-columns:repeat(7,minmax(74px,1fr)); gap:4px; min-width:560px; }
+  .mcal7 { display:grid; grid-template-columns:repeat(7,minmax(74px,1fr)); gap:4px; min-width:560px; }
+  .ycal { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .ymbox { border:1px solid var(--line); border-radius:12px; padding:14px 8px; text-align:center; cursor:pointer; }
+  .ymbox:hover { border-color:var(--gold); }
+  .ymbox .yn { color:var(--dim); font-size:11px; letter-spacing:.6px; }
+  .ymbox .yv { font-weight:800; font-size:17px; margin-top:4px; }
   .dhd { color:var(--dim); font-size:10.5px; letter-spacing:.5px; text-align:center; padding:2px 0; }
   .dday { min-height:62px; border:1px solid var(--line); border-radius:8px; padding:3px 4px; font-size:11px; }
   .dday.off { opacity:.35; }
@@ -165,11 +171,35 @@
     <div class="note" id="guard"></div>
   </div>
   <div class="card"><h2>Trading equity curve <span class="note">(your trades only)</span></h2><canvas id="c_eq"></canvas></div>
-  <div class="card"><h2>Daily P&amp;L calendar <span class="note">(last 20 weeks, Mon&ndash;Fri)</span>
+  <div class="card"><h2>P&amp;L calendar
       <select id="heat_src" onclick="event.stopPropagation()" onchange="localStorage.setItem('journal_heatsrc',this.value);render()"
         style="float:right;font-size:12px;padding:4px 8px"><option value="manual">your trades</option>
         <option value="bot">bot</option><option value="both">both</option></select></h2>
-    <div id="heat"></div><div class="note" id="heatnote"></div></div>
+    <div class="row" style="align-items:center;margin-top:6px">
+      <button class="act gray" style="padding:6px 14px" onclick="pnlNav(-1)">&larr;</button>
+      <b id="pnlcal_title" style="min-width:120px;text-align:center"></b>
+      <button class="act gray" style="padding:6px 14px" onclick="pnlNav(1)">&rarr;</button>
+      <button class="act gray" style="padding:6px 14px" onclick="pnlNav(0)">today</button>
+      <span style="flex:1"></span>
+      <button class="act" id="pm_month" style="padding:6px 14px" onclick="pnlMode('month')">Monthly</button>
+      <button class="act gray" id="pm_year" style="padding:6px 14px" onclick="pnlMode('year')">Yearly</button>
+    </div>
+    <div id="pnlcal" style="margin-top:10px"></div>
+    <div class="note" id="pnlcalnote"></div>
+  </div>
+  <div class="card"><h2>Quick overview <span class="note">(all three accounts)</span></h2>
+    <div class="subnav" id="qo_tabs" style="flex-wrap:wrap">
+      <button data-p="day" onclick="qoSet('day')">Day</button>
+      <button data-p="week" onclick="qoSet('week')">Week</button>
+      <button data-p="month" onclick="qoSet('month')">Month</button>
+      <button data-p="3m" onclick="qoSet('3m')">3 Mo</button>
+      <button data-p="1y" onclick="qoSet('1y')">1 Yr</button>
+      <button data-p="ytd" onclick="qoSet('ytd')">YTD</button>
+      <button data-p="max" onclick="qoSet('max')">Max</button>
+    </div>
+    <div class="grid" id="qo_grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr))"></div>
+    <div class="note" id="qo_note"></div>
+  </div>
 </div>
 
 <!-- ============ JOURNAL (futures / day trades) ============ -->
@@ -599,7 +629,8 @@ function rMult(t){ if(!t.stop || t.stop===t.entry) return null;
   const risk = Math.abs(t.entry-t.stop); return risk>0 ? pts(t)/risk : null; }
 function adjSum(){ return DB.adj.reduce((a,x)=>a+x.amount,0); }
 function equity(){ return DB.start + adjSum() + DB.trades.reduce((a,t)=>a+pnl(t),0); }
-function today(){ return new Date().toISOString().slice(0,10); }
+function today(){ const d=new Date();   // LOCAL date — UTC made "today" flip at 8 PM ET
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 function weekKey(ds){ const d = new Date(ds+"T12:00"); const day=(d.getDay()+6)%7;
   d.setDate(d.getDate()-day); return d.toISOString().slice(0,10); }
 
@@ -897,14 +928,16 @@ function delDiv(id){ DB.tomb.push(id); DB.stocks.divs=DB.stocks.divs.filter(d=>d
 function receivedAll(){
   const out=[];
   const real=DB.stocks.divs;   // broker-recorded + manual payments — the ground truth
-  allTickers().forEach(t=>{
+  // when the Robinhood feed is active (st_ records exist), it IS the complete
+  // dividend ledger — estimated rows on top of it inflate lifetime totals with
+  // guessed payments for long-gone positions. Estimates only serve manual users.
+  const brokerLedger=real.some(x=>String(x.id||"").startsWith("st_"));
+  if(!brokerLedger) allTickers().forEach(t=>{
     const mine=real.filter(x=>x.ticker===t);
     ((MKT[t]&&MKT[t].divs)||[]).forEach(d=>{
       if(!d.payment_date || d.payment_date>today()) return;
       const sh=sharesOn(t, d.ex_dividend_date||d.payment_date);
       if(sh<=0.0001) return;
-      // skip the estimated row when a real payment exists within a few days —
-      // otherwise every dividend counts twice (AV estimate + Robinhood record)
       const pd=new Date(d.payment_date);
       if(mine.some(x=>Math.abs(new Date(x.date)-pd)<=6*864e5)) return;
       out.push({id:"auto_"+t+"_"+d.payment_date, date:d.payment_date,
@@ -1966,11 +1999,10 @@ function renderDash(){
   let run=DB.start+adjSum(); const series=[run];
   DB.trades.forEach(t=>{ run+=pnl(t); series.push(run); });
   drawLine("c_eq", series, null, DB.start+adjSum());
-  const hs=localStorage.getItem("journal_heatsrc")||"manual";
   const hsel=document.getElementById("heat_src");
-  if(document.activeElement!==hsel) hsel.value=hs;
-  const hsrc= hs==="bot"? BOT.trades : hs==="both"? DB.trades.concat(BOT.trades) : DB.trades;
-  renderHeat(metrics(hsrc).days);
+  if(hsel && document.activeElement!==hsel) hsel.value=localStorage.getItem("journal_heatsrc")||"manual";
+  renderPnlCal();
+  renderQO();
 }
 function ring(val, goal, label){
   const p = goal>0 ? Math.max(0, Math.min(1, val/goal)) : 0;
@@ -1982,33 +2014,128 @@ function ring(val, goal, label){
       stroke-linecap="round" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}"/></svg>
     <div class="rv" style="color:${col}">${fmt2(val)}</div><div class="rl">${label}</div></div>`;
 }
-function renderHeat(days){
-  const el=document.getElementById("heat"); el.innerHTML="";
-  const vals=Object.values(days); const mx=Math.max(1,...vals.map(v=>Math.abs(v)));
-  let best=null, bestD="";
-  const now=new Date();
-  for(let wko=19; wko>=0; wko--){
-    const col=document.createElement("div"); col.className="hcol";
-    for(let dow=0; dow<5; dow++){
-      const d=new Date(now); const back=(now.getDay()+6)%7;
-      d.setDate(d.getDate()-back-wko*7+dow);
-      const ds=d.toISOString().slice(0,10);
-      const cell=document.createElement("div"); cell.className="hcell";
-      if(ds in days){ const v=days[ds];
-        const a=0.25+0.75*Math.min(1,Math.abs(v)/mx);
-        cell.style.background = v>=0? `rgba(46,230,168,${a.toFixed(2)})` : `rgba(255,93,108,${a.toFixed(2)})`;
-        cell.style.color = v>=0? "#03130c" : "#fff";
-        cell.textContent = (v>=0?"+":"−") + (Math.abs(v)>=10000? (Math.abs(v)/1000).toFixed(1)+"k" : Math.round(Math.abs(v)));
-        cell.title = fmtD(ds)+"  "+fmt2(v);
-        if(best===null||v>best){ best=v; bestD=ds; }
-      } else cell.title=fmtD(ds);
-      col.appendChild(cell);
+// ---- P&L calendar: real monthly / yearly views ----
+let PCAL=JSON.parse(localStorage.getItem("journal_pnlcal")||"null");
+function pcalInit(){ if(!PCAL){ const n=new Date(); PCAL={mode:"month", y:n.getFullYear(), m:n.getMonth()}; } }
+function pcalSave(){ localStorage.setItem("journal_pnlcal", JSON.stringify(PCAL)); }
+function pnlSrcTrades(){
+  const hs=localStorage.getItem("journal_heatsrc")||"manual";
+  return hs==="bot"? BOT.trades : hs==="both"? DB.trades.concat(BOT.trades) : DB.trades;
+}
+function pnlNav(d){ pcalInit();
+  if(d===0){ const n=new Date(); PCAL.y=n.getFullYear(); PCAL.m=n.getMonth(); }
+  else if(PCAL.mode==="month"){ PCAL.m+=d; while(PCAL.m<0){PCAL.m+=12;PCAL.y--;} while(PCAL.m>11){PCAL.m-=12;PCAL.y++;} }
+  else PCAL.y+=d;
+  pcalSave(); renderPnlCal();
+}
+function pnlMode(m){ pcalInit(); PCAL.mode=m; pcalSave(); renderPnlCal(); }
+function pnlGoMonth(mi){ pcalInit(); PCAL.mode="month"; PCAL.m=mi; pcalSave(); renderPnlCal(); }
+function cellAmt(v){ const a=Math.abs(v);
+  return (v>=0?"+":"−") + (a>=10000? (a/1000).toFixed(1)+"k" : a>=1000? Math.round(a).toLocaleString() : Math.round(a)); }
+function renderPnlCal(){
+  pcalInit();
+  const el=document.getElementById("pnlcal"); if(!el) return;
+  const days=metrics(pnlSrcTrades()).days;
+  const bm=document.getElementById("pm_month"), by=document.getElementById("pm_year");
+  if(bm) bm.className="act"+(PCAL.mode==="month"?"":" gray");
+  if(by) by.className="act"+(PCAL.mode==="year"?"":" gray");
+  const pad=n=>String(n).padStart(2,"0");
+  const note=document.getElementById("pnlcalnote");
+  if(PCAL.mode==="month"){
+    document.getElementById("pnlcal_title").textContent=MONTHS[PCAL.m]+" "+PCAL.y;
+    const first=new Date(PCAL.y,PCAL.m,1).getDay();
+    const dim=new Date(PCAL.y,PCAL.m+1,0).getDate();
+    const mk=PCAL.y+"-"+pad(PCAL.m+1);
+    let mx=1, tot=0, wins=0, losses=0;
+    for(let d=1;d<=dim;d++){ const v=days[mk+"-"+pad(d)];
+      if(v!==undefined){ mx=Math.max(mx,Math.abs(v)); tot+=v; if(v>0)wins++; else if(v<0)losses++; } }
+    let html='<div class="mcal7">';
+    ["SUN","MON","TUE","WED","THU","FRI","SAT"].forEach(d=>html+=`<div class="dhd">${d}</div>`);
+    for(let i=0;i<first;i++) html+='<div class="dday off"></div>';
+    const tds=today();
+    for(let d=1;d<=dim;d++){
+      const ds=mk+"-"+pad(d); const v=days[ds];
+      let style="", val="", dn="";
+      if(v!==undefined){
+        const a=0.18+0.62*Math.min(1,Math.abs(v)/mx);
+        style=`background:${v>=0?`rgba(46,230,168,${a.toFixed(2)})`:`rgba(255,93,108,${a.toFixed(2)})`};`;
+        const txt=v>=0?"#04150d":"#fff";
+        dn=`color:${v>=0?"rgba(4,21,13,.55)":"rgba(255,255,255,.6)"}`;
+        val=`<div style="font-weight:800;font-size:13.5px;margin-top:8px;text-align:center;color:${txt}" title="${fmtD(ds)} ${fmt2(v)}">${cellAmt(v)}</div>`;
+      }
+      html+=`<div class="dday${ds===tds?" tod":""}" style="${style}"><div class="dn" style="${dn}">${d}</div>${val}</div>`;
     }
-    el.appendChild(col);
+    el.innerHTML=html+"</div>";
+    note.innerHTML = (wins+losses)?
+      `<b class="pos">${wins} green</b> · <b class="neg">${losses} red</b> · month total <b class="${tot>=0?'pos':'neg'}">${fmt2(tot)}</b>` :
+      "no trades this month";
+  } else {
+    document.getElementById("pnlcal_title").textContent=String(PCAL.y);
+    const mtot=new Array(12).fill(null);
+    Object.entries(days).forEach(([ds,v])=>{
+      if(ds.slice(0,4)==String(PCAL.y)){ const mi=parseInt(ds.slice(5,7),10)-1;
+        mtot[mi]=(mtot[mi]||0)+v; } });
+    const mx=Math.max(1,...mtot.filter(v=>v!==null).map(v=>Math.abs(v)));
+    let yt=0, any=false;
+    let html='<div class="ycal">';
+    for(let m=0;m<12;m++){
+      const v=mtot[m];
+      let style="", vhtml='<div class="yv" style="color:var(--dim)">–</div>';
+      if(v!==null){ any=true; yt+=v;
+        const a=0.16+0.55*Math.min(1,Math.abs(v)/mx);
+        style=`background:${v>=0?`rgba(46,230,168,${a.toFixed(2)})`:`rgba(255,93,108,${a.toFixed(2)})`};`;
+        vhtml=`<div class="yv" style="color:${v>=0?"#04150d":"#fff"}">${(v>=0?"+":"−")+"$"+Math.abs(Math.round(v)).toLocaleString()}</div>`;
+      }
+      html+=`<div class="ymbox" style="${style}" onclick="pnlGoMonth(${m})" title="open ${MONTHS[m]} ${PCAL.y}">
+        <div class="yn" style="${v!==null?(v>=0?"color:rgba(4,21,13,.6)":"color:rgba(255,255,255,.7)"):""}">${MONTHS[m].toUpperCase()}</div>${vhtml}</div>`;
+    }
+    el.innerHTML=html+"</div>";
+    note.innerHTML = any? `year total <b class="${yt>=0?'pos':'neg'}">${fmt2(yt)}</b> · tap a month to open it` : "no trades this year";
   }
-  requestAnimationFrame(()=>{ const sc=el.closest(".card"); if(sc) sc.scrollLeft=sc.scrollWidth; });
-  document.getElementById("heatnote").textContent =
-    best!==null? `Best day shown: ${fmtD(bestD)} (${fmt2(best)})` : "Every green square is a day you finished up.";
+}
+
+// ---- quick overview: day/week/month/3m/1y/ytd/max across all three accounts ----
+function qoSet(p){ localStorage.setItem("journal_qo",p); renderQO(); }
+function periodStart(p){
+  switch(p){
+    case "day": return today();
+    case "week": return weekKey(today());
+    case "month": return today().slice(0,7)+"-01";
+    case "3m": return isoAdd(today(),-90);
+    case "1y": return isoAdd(today(),-365);
+    case "ytd": return today().slice(0,4)+"-01-01";
+    default: return "0000-01-01";
+  }
+}
+function renderQO(){
+  const grid=document.getElementById("qo_grid"); if(!grid) return;
+  const p=localStorage.getItem("journal_qo")||"month";
+  document.querySelectorAll("#qo_tabs button").forEach(b=>b.classList.toggle("on", b.dataset.p===p));
+  const from=periodStart(p);
+  const man=DB.trades.filter(t=>t.date>=from);
+  const manNet=man.reduce((a,t)=>a+pnl(t),0);
+  const bot=BOT.trades.filter(t=>t.date>=from);
+  const botNet=bot.reduce((a,t)=>a+pnl(t),0);
+  const divs=receivedAll().filter(d=>d.date>=from).reduce((a,d)=>a+d.amount,0);
+  const snaps=DB.stocks.snaps||{}; const keys=Object.keys(snaps).sort();
+  const curV=tickers().reduce((a,t)=>a+sharesNow(t)*price(t),0);
+  let base=null;
+  if(p==="max"){ if(keys.length) base=snaps[keys[0]]; }
+  else for(const k of keys){ if(k<=from) base=snaps[k]; else break; }
+  const dv=base!==null? curV-base : null;
+  const stk=divs+(dv||0);
+  const blk=(label,val,cls,sub)=>`<div class="kpi" style="padding:18px 10px">
+    <div class="v ${cls}" style="font-size:26px">${val}</div>
+    <div class="l">${label}</div>
+    <div class="note" style="margin-top:6px">${sub}</div></div>`;
+  grid.innerHTML =
+    blk("YOUR FUTURES — MANUAL", fmt2(manNet), manNet>0?"pos":manNet<0?"neg":"", man.length+" trade"+(man.length===1?"":"s")) +
+    blk("BOT — SYSTEM", BOT.trades.length? fmt2(botNet):"–", botNet>0?"pos":botNet<0?"neg":"",
+        BOT.trades.length? bot.length+" fill"+(bot.length===1?"":"s") : "no bot data yet") +
+    blk("STOCKS — ROBINHOOD", fmt2(stk), stk>0?"pos":stk<0?"neg":"",
+        fmt2(divs)+" dividends"+(dv!==null? " · value Δ "+fmt2(dv) : " · value history starts "+(keys.length?fmtD(keys[0]):"soon")));
+  document.getElementById("qo_note").textContent =
+    "Stocks = dividends received in the period plus portfolio value change (value tracking builds from daily snapshots — deposits show up as gains until enough history accumulates).";
 }
 function renderLog(){
   const tb=document.querySelector("#ttab tbody"); tb.innerHTML="";
