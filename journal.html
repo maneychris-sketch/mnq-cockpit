@@ -162,6 +162,7 @@
     <div class="note" style="letter-spacing:.8px;font-weight:700;margin-bottom:8px">YOUR FUTURES TRADES — MANUAL (TradingView)</div>
     <div class="grid" id="kpis"></div>
     <div class="note" style="letter-spacing:.8px;font-weight:700;margin:16px 0 8px">BOT — v2.3 SYSTEM <span id="botstat" style="font-weight:400"></span></div>
+    <div id="botwarn"></div>
     <div class="grid" id="kpis_bot"></div>
     <div class="note" style="letter-spacing:.8px;font-weight:700;margin:16px 0 8px">LONG-TERM INVESTING — ROBINHOOD (stocks &amp; dividends)</div>
     <div class="grid" id="kpis_inv"></div>
@@ -548,6 +549,7 @@ function migrate(d){
   return { v:2, start: d.start !== undefined ? d.start : 2000, startTs: d.startTs || 0,
     keys: d.keys || { av:"", pg:"", updated:0 },
     scan: d.scan || null,
+    botpend: d.botpend || null,
     trades: Array.isArray(d.trades) ? d.trades : [],
     adj: Array.isArray(d.adj) ? d.adj : [], tomb: Array.isArray(d.tomb) ? d.tomb : [],
     goals: d.goals || { day:50, week:250, month:1000, maxloss:100, maxtrades:5, updated:0 },
@@ -1996,6 +1998,18 @@ function renderDash(){
   const bdays=Object.keys(bm.days).length;
   document.getElementById("botstat").textContent = BOT.trades.length?
     "· "+BOT.trades.length+" fills · from the Cockpit" : "";
+  const bp=DB.botpend;
+  const bwEl=document.getElementById("botwarn");
+  if(bwEl){
+    let bw="";
+    if(bp && (bp.missing||[]).length)
+      bw+=`<div class="note" style="color:var(--red);font-weight:700">&#9888;&#65039; ${bp.missing.length} bot trade${bp.missing.length>1?"s":""} opened but the exit email never arrived — TradingView ate it. Missing: `+
+        bp.missing.map(m=>`${m.dir} @${m.px} (${fmtD(m.t.slice(0,10))} ${m.t.slice(11)})`).join(", ")+
+        `. Grab the fills from the Strategy Tester list — and load v2.3.3 + recreate the alert to stop this for good.</div>`;
+    if(bp && bp.open)
+      bw+=`<div class="note" style="color:var(--amber)">bot position open: ${bp.open.dir} @${bp.open.px} since ${bp.open.t.slice(11)} — exit expected within ~3h.</div>`;
+    bwEl.innerHTML=bw;
+  }
   document.getElementById("kpis_bot").innerHTML = BOT.trades.length?
     kpi(fmt$(botEquity()),"BOT EQUITY", botEquity()>=BOT.start?"pos":"neg") +
     kpi(fmt2(bm.net),"BOT NET P&L", bm.net>=0?"pos":"neg") +
@@ -2538,7 +2552,8 @@ function mergeDB(a,b){
   const gNew=((a.goals&&a.goals.updated)||0)>=((b.goals&&b.goals.updated)||0)?a:b;
   const kNew=((a.keys&&a.keys.updated)||0)>=((b.keys&&b.keys.updated)||0)?(a.keys||{av:"",pg:"",updated:0}):b.keys;
   const scNew=((a.scan&&a.scan.updated)||0)>=((b.scan&&b.scan.updated)||0)?(a.scan||null):b.scan;
-  const out={ v:2, start:sNew.start, startTs:sNew.startTs||0, keys:kNew, scan:scNew,
+  const bpNew=((a.botpend&&a.botpend.updated)||0)>=((b.botpend&&b.botpend.updated)||0)?(a.botpend||null):b.botpend;
+  const out={ v:2, start:sNew.start, startTs:sNew.startTs||0, keys:kNew, scan:scNew, botpend:bpNew,
     trades:uni(a.trades,b.trades), adj:uni(a.adj,b.adj), tomb:[...tomb], goals:gNew.goals,
     stocks:{ lots:uni(a.stocks&&a.stocks.lots, b.stocks&&b.stocks.lots),
              divs:uni(a.stocks&&a.stocks.divs, b.stocks&&b.stocks.divs),
