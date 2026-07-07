@@ -396,6 +396,7 @@
       <button data-m="value" onclick="scanSet('value')">Best value</button>
       <button data-m="growth" onclick="scanSet('growth')">Fastest growth</button>
       <button data-m="monthly" onclick="scanSet('monthly')">Monthly payers</button>
+      <button data-m="cheapmo" onclick="scanSet('cheapmo')">Cheap monthly income</button>
     </div>
     <div id="scan_out"></div>
   </div>
@@ -1728,6 +1729,12 @@ function scanView(s){
     case "monthly":
       list=pool.filter(m=>m.freq==="monthly"||m.freq==="weekly").sort((a,b)=>b.score-a.score).slice(0,10);
       label="monthly payers, best score first"; break;
+    case "cheapmo": {
+      const mo=pool.filter(m=>m.freq==="monthly"||m.freq==="weekly");
+      const under=mo.filter(m=>m.px<=20).sort((a,b)=>b.yld-a.yld);
+      const fill=mo.filter(m=>m.px>20).sort((a,b)=>a.px-b.px);
+      list=under.concat(fill).slice(0,10);
+      label="monthly payers at $20 or less, most income per dollar first — then the next-cheapest monthlies"; break; }
     default:
       list=s.picks; label="best overall score · max 2 per sector"; break;
   }
