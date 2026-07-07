@@ -1711,10 +1711,10 @@ function scanView(s){
   let list, label;
   switch(mode){
     case "cheap": {
-      const q=pool.filter(m=>m.score>=55).sort((a,b)=>a.px-b.px);
-      const rest=pool.filter(m=>m.score<55).sort((a,b)=>a.px-b.px);
-      list=q.concat(rest).slice(0,10);
-      label="quality names sorted by share price — most stock for the fewest dollars"; break; }
+      const under=pool.filter(m=>m.px<=20).sort((a,b)=>b.score-a.score);
+      const fill=pool.filter(m=>m.px>20).sort((a,b)=>a.px-b.px);
+      list=under.concat(fill).slice(0,10);
+      label="$20 or less first (best score first), then the next cheapest to fill"; break; }
     case "yield":
       list=pool.slice().sort((a,b)=>b.yld-a.yld).slice(0,10);
       label="highest dividend yield first (all passed the trap filters)"; break;
