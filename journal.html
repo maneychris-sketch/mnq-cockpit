@@ -397,6 +397,7 @@
       <button data-m="growth" onclick="scanSet('growth')">Fastest growth</button>
       <button data-m="monthly" onclick="scanSet('monthly')">Monthly payers</button>
       <button data-m="cheapmo" onclick="scanSet('cheapmo')">Cheap monthly income</button>
+      <button data-m="rawyield" onclick="scanSet('rawyield')">Highest yield</button>
     </div>
     <div id="scan_out"></div>
   </div>
@@ -1742,6 +1743,9 @@ function scanView(s){
       const fill=mo.filter(m=>m.px>20).sort((a,b)=>a.px-b.px);
       list=under.concat(fill).slice(0,10);
       label="monthly payers at $20 or less, most income per dollar first — then the next-cheapest monthlies"; break; }
+    case "rawyield":
+      list=(s.hi&&s.hi.length? s.hi : pool.slice().sort((a,b)=>b.yld-a.yld)).slice(0,10);
+      label="⚠️ the RAW biggest yields, no ceiling — danger-zone payouts included; the score and reasons tell you which are traps"; break;
     default:
       list=s.picks; label="best overall score · max 2 per sector"; break;
   }
