@@ -388,7 +388,15 @@
 
 <!-- ============ RESEARCH (screener + news) ============ -->
 <div class="tab" id="rsc">
-  <div class="card"><h2>Daily Top 10 <span class="note">(scanner — fresh picks every morning, with the reasons)</span></h2>
+  <div class="card"><h2>Daily Top 10 <span class="note">(scanner — fresh every morning, with the reasons)</span></h2>
+    <div class="subnav" id="scan_tabs" style="flex-wrap:wrap">
+      <button data-m="best" onclick="scanSet('best')">Best overall</button>
+      <button data-m="cheap" onclick="scanSet('cheap')">Cheapest entry</button>
+      <button data-m="yield" onclick="scanSet('yield')">Highest yield</button>
+      <button data-m="value" onclick="scanSet('value')">Best value</button>
+      <button data-m="growth" onclick="scanSet('growth')">Fastest growth</button>
+      <button data-m="monthly" onclick="scanSet('monthly')">Monthly payers</button>
+    </div>
     <div id="scan_out"></div>
   </div>
   <div class="card"><h2>Stock screener <span class="note">(dividend breakdown &amp; rating for any ticker)</span></h2>
@@ -1696,6 +1704,34 @@ function renderWhatIf(){
 }
 
 // ---- daily top-10 scanner display ----
+function scanSet(m){ localStorage.setItem("journal_scanmode",m); renderScan(); }
+function scanView(s){
+  const mode=localStorage.getItem("journal_scanmode")||"best";
+  const pool=(s.pool&&s.pool.length? s.pool : s.picks).slice();
+  let list, label;
+  switch(mode){
+    case "cheap": {
+      const q=pool.filter(m=>m.score>=55).sort((a,b)=>a.px-b.px);
+      const rest=pool.filter(m=>m.score<55).sort((a,b)=>a.px-b.px);
+      list=q.concat(rest).slice(0,10);
+      label="quality names sorted by share price — most stock for the fewest dollars"; break; }
+    case "yield":
+      list=pool.slice().sort((a,b)=>b.yld-a.yld).slice(0,10);
+      label="highest dividend yield first (all passed the trap filters)"; break;
+    case "value":
+      list=pool.slice().sort((a,b)=>(b.vsnorm||0)-(a.vsnorm||0)).slice(0,10);
+      label="yielding the furthest above their own 1-yr norm — historically cheapest"; break;
+    case "growth":
+      list=pool.filter(m=>m.cagr!==null&&m.cagr!==undefined).sort((a,b)=>b.cagr-a.cagr).slice(0,10);
+      label="fastest 5-yr dividend growers"; break;
+    case "monthly":
+      list=pool.filter(m=>m.freq==="monthly"||m.freq==="weekly").sort((a,b)=>b.score-a.score).slice(0,10);
+      label="monthly payers, best score first"; break;
+    default:
+      list=s.picks; label="best overall score · max 2 per sector"; break;
+  }
+  return {mode, list, label};
+}
 function renderScan(){
   const el=document.getElementById("scan_out"); if(!el) return;
   const s=DB.scan;
@@ -1703,8 +1739,10 @@ function renderScan(){
     el.innerHTML='<div class="note">The scanner runs on your Mac every morning at 8:15 — it works through a 140-stock quality dividend universe (yield vs its own history, growth streaks, cuts, entry point) and posts its Top 10 here with the reasoning. First results appear after its first full pass.</div>';
     return;
   }
-  let html=`<div class="note" style="margin-bottom:8px">scanned ${s.covered}/${s.universe} quality dividend names · ${fmtD(s.date)} · max 2 per sector · score = yield band + value vs own history + growth + consistency + entry</div>`;
-  s.picks.forEach((m,i)=>{
+  const {mode, list, label}=scanView(s);
+  document.querySelectorAll("#scan_tabs button").forEach(b=>b.classList.toggle("on", b.dataset.m===mode));
+  let html=`<div class="note" style="margin-bottom:8px">${label} · scanned ${s.covered}/${s.universe} names · ${fmtD(s.date)}</div>`;
+  list.forEach((m,i)=>{
     const col=m.score>=80?"#2ee6a8":m.score>=65?"#f0b429":"#ffb74d";
     const held=sharesNow(m.t)>0.0001;
     html+=`<div style="border-bottom:1px solid var(--line);padding:10px 0">
