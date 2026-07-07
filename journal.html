@@ -1627,6 +1627,7 @@ function renderScreen(){
     <div class="grid" style="margin-top:12px">
       ${kpi(r.yld?r.yld.toFixed(2)+"%":"–","DIVIDEND YIELD", ys.cls)}
       ${kpi(r.ttm?fmt2(r.ttm):"–","PAID /SHARE (12MO)","gold")}
+      ${kpi(h.length?"$"+(parseFloat(h[h.length-1].amount)<0.1?parseFloat(h[h.length-1].amount).toFixed(4):parseFloat(h[h.length-1].amount).toFixed(2)):"–","PER PAYMENT /SHARE","gold")}
       ${kpi(r.freq.label,"FREQUENCY")}
       ${kpi(nextEx?fmtD(nextEx):"–","NEXT EX-DIV DATE")}
       ${kpi(r.payout!==null? r.payout.toFixed(0)+"%":"–","PAYOUT RATIO", r.payout===null?"":r.payout<80?"pos":r.payout<100?"amb":"neg")}
