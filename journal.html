@@ -387,6 +387,9 @@
 
 <!-- ============ RESEARCH (screener + news) ============ -->
 <div class="tab" id="rsc">
+  <div class="card"><h2>Daily Top 10 <span class="note">(scanner — fresh picks every morning, with the reasons)</span></h2>
+    <div id="scan_out"></div>
+  </div>
   <div class="card"><h2>Stock screener <span class="note">(dividend breakdown &amp; rating for any ticker)</span></h2>
     <div class="row">
       <input id="sc_tick" placeholder="ticker e.g. SCHD" style="width:130px;text-transform:uppercase"
@@ -544,6 +547,7 @@ function migrate(d){
   const s = d.stocks || {};
   return { v:2, start: d.start !== undefined ? d.start : 2000, startTs: d.startTs || 0,
     keys: d.keys || { av:"", pg:"", updated:0 },
+    scan: d.scan || null,
     trades: Array.isArray(d.trades) ? d.trades : [],
     adj: Array.isArray(d.adj) ? d.adj : [], tomb: Array.isArray(d.tomb) ? d.tomb : [],
     goals: d.goals || { day:50, week:250, month:1000, maxloss:100, maxtrades:5, updated:0 },
@@ -1689,6 +1693,38 @@ function renderWhatIf(){
       · yield safety: <b class="${ys.cls}">${ys.t}</b></div>`;
 }
 
+// ---- daily top-10 scanner display ----
+function renderScan(){
+  const el=document.getElementById("scan_out"); if(!el) return;
+  const s=DB.scan;
+  if(!s || !(s.picks||[]).length){
+    el.innerHTML='<div class="note">The scanner runs on your Mac every morning at 8:15 — it works through a 140-stock quality dividend universe (yield vs its own history, growth streaks, cuts, entry point) and posts its Top 10 here with the reasoning. First results appear after its first full pass.</div>';
+    return;
+  }
+  let html=`<div class="note" style="margin-bottom:8px">scanned ${s.covered}/${s.universe} quality dividend names · ${fmtD(s.date)} · max 2 per sector · score = yield band + value vs own history + growth + consistency + entry</div>`;
+  s.picks.forEach((m,i)=>{
+    const col=m.score>=80?"#2ee6a8":m.score>=65?"#f0b429":"#ffb74d";
+    const held=sharesNow(m.t)>0.0001;
+    html+=`<div style="border-bottom:1px solid var(--line);padding:10px 0">
+      <div class="row" style="align-items:center;margin-bottom:0">
+        <b style="width:22px;color:var(--dim)">${i+1}</b>
+        <span class="chip" style="background:${col}22;color:${col};font-size:13px;padding:3px 10px">${m.score}</span>
+        <b style="font-size:15px">${m.t}</b>
+        <span class="note" style="margin:0">${(m.name||"").slice(0,28)}</span>
+        <span style="flex:1"></span>
+        <span class="gold" style="font-weight:700">${m.yld}%</span>
+        <span class="note" style="margin:0">$${m.px}</span>
+        ${held?'<span class="chip gA">own</span>':""}
+        <button class="act gray" style="padding:3px 9px" onclick="intView('${m.t}')">view</button>
+        <button class="act gray" style="padding:3px 9px" onclick="intTest('${m.t}')">test</button>
+        <button class="act gray" style="padding:3px 9px" title="add to Interested" onclick="toggleInterested('${m.t}');renderScan()">${isInterested(m.t)?"★":"☆"}</button>
+      </div>
+      <div class="note" style="margin-top:5px">${(m.why||[]).join(" · ")}</div>
+    </div>`;
+  });
+  el.innerHTML=html;
+}
+
 // ---- interested watchlist ----
 function interestedList(){ return (DB.stocks.interested&&DB.stocks.interested.list)||[]; }
 function isInterested(t){ return interestedList().includes(t); }
@@ -2450,7 +2486,7 @@ function subTab(btn){
   document.getElementById("aStk").style.display = btn.dataset.a==="aStk"?"":"none";
   render();
 }
-function render(){ renderDash(); renderLog(); renderStocks(); renderDivs(); renderNews(); renderScreen(); renderWhatIf(); renderAna(); renderTargets(); persist(); }
+function render(){ renderDash(); renderLog(); renderStocks(); renderDivs(); renderNews(); renderScreen(); renderWhatIf(); renderScan(); renderAna(); renderTargets(); persist(); }
 
 // ================= csv / json =================
 function exportCSV(){
@@ -2501,7 +2537,8 @@ function mergeDB(a,b){
   const sNew=(a.startTs||0)>=(b.startTs||0)?a:b;
   const gNew=((a.goals&&a.goals.updated)||0)>=((b.goals&&b.goals.updated)||0)?a:b;
   const kNew=((a.keys&&a.keys.updated)||0)>=((b.keys&&b.keys.updated)||0)?(a.keys||{av:"",pg:"",updated:0}):b.keys;
-  const out={ v:2, start:sNew.start, startTs:sNew.startTs||0, keys:kNew,
+  const scNew=((a.scan&&a.scan.updated)||0)>=((b.scan&&b.scan.updated)||0)?(a.scan||null):b.scan;
+  const out={ v:2, start:sNew.start, startTs:sNew.startTs||0, keys:kNew, scan:scNew,
     trades:uni(a.trades,b.trades), adj:uni(a.adj,b.adj), tomb:[...tomb], goals:gNew.goals,
     stocks:{ lots:uni(a.stocks&&a.stocks.lots, b.stocks&&b.stocks.lots),
              divs:uni(a.stocks&&a.stocks.divs, b.stocks&&b.stocks.divs),
