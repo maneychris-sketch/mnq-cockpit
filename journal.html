@@ -1163,10 +1163,10 @@ function drawDonut(id, legId, items, ctrTop, ctrBot, emptyMsg){
 function recvHist(t){
   return receivedAll().filter(d=>d.ticker===t).sort((a,b)=>a.date<b.date?-1:1);
 }
-function recvCadence(t){   // median gap in days between real received payments
+function recvCadence(t){   // median of the last 3 gaps — recent rhythm wins
   const h=recvHist(t); if(h.length<2) return null;
   const gaps=[];
-  for(let i=Math.max(1,h.length-8);i<h.length;i++)
+  for(let i=Math.max(1,h.length-3);i<h.length;i++)
     gaps.push((new Date(h[i].date)-new Date(h[i-1].date))/864e5);
   gaps.sort((a,b)=>a-b);
   return Math.max(6, gaps[Math.floor(gaps.length/2)]);
@@ -1220,10 +1220,17 @@ function freqLabel(g){
   return     {n:1,  label:"annual", days:g};
 }
 function freqOf(t){
-  const h=divHist(t);
+  let h=divHist(t);
   if(h.length>=2){
+    // drop small SUPPLEMENTAL payments (<40% of the typical amount) so BDC-style
+    // extras don't fake a faster rhythm, then take the median of the LAST 3 gaps
+    // so a recent frequency switch (STAG monthly->quarterly) wins over history
+    const amts=h.slice(-8).map(d=>parseFloat(d.amount)).sort((a,b)=>a-b);
+    const med=amts[Math.floor(amts.length/2)];
+    const reg=h.filter(d=>parseFloat(d.amount)>=0.4*med);
+    if(reg.length>=2) h=reg;
     const gaps=[];
-    for(let i=Math.max(1,h.length-8);i<h.length;i++)
+    for(let i=Math.max(1,h.length-3);i<h.length;i++)
       gaps.push((new Date(h[i].payment_date)-new Date(h[i-1].payment_date))/864e5);
     gaps.sort((a,b)=>a-b);
     return freqLabel(gaps[Math.floor(gaps.length/2)]);
