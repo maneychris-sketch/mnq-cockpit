@@ -392,11 +392,10 @@
     <div class="subnav" id="scan_tabs" style="flex-wrap:wrap">
       <button data-m="best" onclick="scanSet('best')">Best overall</button>
       <button data-m="cheap" onclick="scanSet('cheap')">Cheapest entry</button>
-      <button data-m="yield" onclick="scanSet('yield')">Highest yield</button>
+      <button data-m="yield" onclick="scanSet('yield')">Most per $ invested</button>
       <button data-m="value" onclick="scanSet('value')">Best value</button>
       <button data-m="growth" onclick="scanSet('growth')">Fastest growth</button>
       <button data-m="monthly" onclick="scanSet('monthly')">Monthly payers</button>
-      <button data-m="payout" onclick="scanSet('payout')">Biggest payout</button>
     </div>
     <div id="scan_out"></div>
   </div>
@@ -1719,7 +1718,7 @@ function scanView(s){
       label="$20 or less first (best score first), then the next cheapest to fill"; break; }
     case "yield":
       list=pool.slice().sort((a,b)=>b.yld-a.yld).slice(0,10);
-      label="highest dividend yield first (all passed the trap filters)"; break;
+      label="most dividend per dollar invested — the $/yr shown is per $100 you put in"; break;
     case "value":
       list=pool.slice().sort((a,b)=>(b.vsnorm||0)-(a.vsnorm||0)).slice(0,10);
       label="yielding the furthest above their own 1-yr norm — historically cheapest"; break;
@@ -1729,9 +1728,6 @@ function scanView(s){
     case "monthly":
       list=pool.filter(m=>m.freq==="monthly"||m.freq==="weekly").sort((a,b)=>b.score-a.score).slice(0,10);
       label="monthly payers, best score first"; break;
-    case "payout":
-      list=pool.filter(m=>m.pay!==undefined&&m.pay!==null).sort((a,b)=>b.pay-a.pay).slice(0,10);
-      label="biggest dollar payment per share, per payout"; break;
     default:
       list=s.picks; label="best overall score · max 2 per sector"; break;
   }
@@ -1758,6 +1754,7 @@ function renderScan(){
         <span class="note" style="margin:0">${(m.name||"").slice(0,28)}</span>
         <span style="flex:1"></span>
         <span class="gold" style="font-weight:700">${m.yld}%</span>
+        ${mode==="yield"?`<span class="note" style="margin:0;color:var(--gold2)">≈ $${m.yld.toFixed(2)}/yr per $100</span>`:""}
         ${m.pay!==undefined&&m.pay!==null?`<span class="note" style="margin:0;color:var(--gold2)">$${m.pay<0.1?m.pay.toFixed(4):m.pay.toFixed(2)}/pay</span>`:""}
         <span class="note" style="margin:0">$${m.px}</span>
         ${held?'<span class="chip gA">own</span>':""}
