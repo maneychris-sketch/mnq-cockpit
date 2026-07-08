@@ -433,6 +433,17 @@
     </div>
     <div id="wi_out"></div>
   </div>
+  <div class="card"><h2>Basket builder <span class="note">(up to 10 stocks + amounts &rarr; combined income, with DRIP)</span></h2>
+    <div class="row">
+      <button class="act" onclick="basketFetch()">Fetch data for new tickers</button>
+      <button class="act gray" onclick="basketClear()">Clear basket</button>
+      <span class="note" id="bk_stat" style="margin:0"></span>
+    </div>
+    <table id="bktab"><thead><tr><th>#</th><th>Ticker</th><th>Invest $</th><th>Price</th><th>Yield</th><th>$ /mo</th><th>$ /yr</th></tr></thead><tbody></tbody></table>
+    <div class="grid" id="bk_totals" style="margin-top:14px"></div>
+    <div class="note" style="margin-top:8px">The basket saves automatically and syncs to your other devices. DRIP figures assume
+      every payment is reinvested at the blended yield with payouts and prices holding steady.</div>
+  </div>
   <div class="card"><h2>News &amp; suggestions <span class="note">(your dividend holdings)</span></h2>
     <div class="row">
       <button class="act" onclick="fetchNews()">Refresh news</button>
@@ -568,6 +579,7 @@ function migrate(d){
               snaps: s.snaps || {}, quotes: s.quotes || {},
               targets: s.targets || { updated:0, w:{} },
               interested: s.interested || { updated:0, list:[] },
+              basket: s.basket || { updated:0, rows:[] },
               dgoal: s.dgoal || { goal:100, contrib:0, grow:5, drip:1, updated:0 } } };
 }
 let DB = migrate(JSON.parse(localStorage.getItem(KEY) || "{}"));
@@ -1786,6 +1798,91 @@ function renderScan(){
   el.innerHTML=html;
 }
 
+// ---- basket builder: combined income from a typed list of stocks ----
+let bkSaveTimer=null;
+function basketData(){ return (DB.stocks.basket&&DB.stocks.basket.rows)||[]; }
+function basketBuild(){
+  const tb=document.querySelector("#bktab tbody"); if(!tb || tb.dataset.built) return;
+  const rows=basketData();
+  let html="";
+  for(let i=0;i<10;i++){
+    const r=rows[i]||{};
+    html+=`<tr>
+      <td style="color:var(--dim)">${i+1}</td>
+      <td><input id="bk_t_${i}" value="${r.t||""}" placeholder="ticker" style="width:84px;text-transform:uppercase" oninput="basketCalc(true)"></td>
+      <td><input id="bk_a_${i}" type="number" value="${r.amt||""}" placeholder="$" min="0" step="10" style="width:92px" oninput="basketCalc(true)"></td>
+      <td><span id="bk_px_${i}">–</span></td>
+      <td><span id="bk_y_${i}">–</span></td>
+      <td class="gold"><span id="bk_m_${i}">–</span></td>
+      <td class="gold"><span id="bk_yr_${i}">–</span></td></tr>`;
+  }
+  tb.innerHTML=html; tb.dataset.built="1";
+}
+function basketCalc(save){
+  const tb=document.querySelector("#bktab tbody"); if(!tb||!tb.dataset.built) return;
+  const rows=[]; let inv=0, inc=0; const missing=[];
+  for(let i=0;i<10;i++){
+    const t=document.getElementById("bk_t_"+i).value.trim().toUpperCase();
+    const amt=parseFloat(document.getElementById("bk_a_"+i).value)||0;
+    const px=t? price(t):0;
+    const per=t? ttmPerShare(t):0;
+    const yld=px>0&&per>0? per/px:0;
+    const set=(id,v)=>{ document.getElementById(id).textContent=v; };
+    if(t&&amt>0) { rows.push({t, amt}); inv+=amt; }
+    if(t && !yld && !missing.includes(t)) missing.push(t);
+    set("bk_px_"+i, t&&px? fmt2(px):"–");
+    set("bk_y_"+i, yld? (100*yld).toFixed(2)+"%":"–");
+    const ri=amt*yld;
+    set("bk_m_"+i, t&&amt&&yld? fmt2(ri/12):"–");
+    set("bk_yr_"+i, t&&amt&&yld? fmt2(ri):"–");
+    if(amt&&yld) inc+=ri;
+  }
+  const y=inv>0? inc/inv:0;
+  const drip1=inv*(Math.pow(1+y/12,12)-1);
+  const v5=inv*Math.pow(1+y/12,60);
+  document.getElementById("bk_totals").innerHTML =
+    kpi(fmt2(inv),"TOTAL INVESTED","gold")+
+    kpi(inc?fmt2(inc/12):"–","INCOME /MO","pos")+
+    kpi(inc?fmt2(inc):"–","INCOME /YR","pos")+
+    kpi(inv&&y?(100*y).toFixed(2)+"%":"–","BLENDED YIELD")+
+    kpi(inc?fmt2(drip1):"–","YR-1 INCOME W/ DRIP","gold")+
+    kpi(inc?fmt2(v5*y):"–","INCOME /YR IN 5 YRS (DRIP)","gold");
+  document.getElementById("bk_stat").textContent = missing.length?
+    "no data yet for "+missing.join(", ")+" — hit Fetch (Polygon, no daily limit)" : "";
+  window._bkMissing=missing;
+  if(save){ clearTimeout(bkSaveTimer);
+    bkSaveTimer=setTimeout(()=>{ DB.stocks.basket={updated:Date.now(), rows};
+      persist(); scheduleSync(); },800); }
+}
+async function basketFetch(){
+  const missing=window._bkMissing||[];
+  const stat=document.getElementById("bk_stat");
+  if(!missing.length){ stat.textContent="nothing to fetch — all tickers have data"; return; }
+  if(!anyKey()){ stat.textContent="save an API key on the Stocks tab first"; return; }
+  for(const t of missing) await fetchStock(t, stat);
+  basketCalc(false);
+  stat.textContent="data loaded ✓";
+}
+function basketClear(){
+  if(!confirm("Clear the whole basket?")) return;
+  for(let i=0;i<10;i++){ document.getElementById("bk_t_"+i).value="";
+    document.getElementById("bk_a_"+i).value=""; }
+  DB.stocks.basket={updated:Date.now(), rows:[]};
+  persist(); scheduleSync(); basketCalc(false);
+}
+function renderBasket(){
+  basketBuild();
+  const rows=basketData();
+  for(let i=0;i<10;i++){
+    const tEl=document.getElementById("bk_t_"+i), aEl=document.getElementById("bk_a_"+i);
+    if(!tEl) return;
+    const r=rows[i]||{};
+    if(document.activeElement!==tEl && (r.t||"")!==tEl.value) tEl.value=r.t||"";
+    if(document.activeElement!==aEl && String(r.amt||"")!==(aEl.value||"")) aEl.value=r.amt||"";
+  }
+  basketCalc(false);
+}
+
 // ---- interested watchlist ----
 function interestedList(){ return (DB.stocks.interested&&DB.stocks.interested.list)||[]; }
 function isInterested(t){ return interestedList().includes(t); }
@@ -2559,7 +2656,7 @@ function subTab(btn){
   document.getElementById("aStk").style.display = btn.dataset.a==="aStk"?"":"none";
   render();
 }
-function render(){ renderDash(); renderLog(); renderStocks(); renderDivs(); renderNews(); renderScreen(); renderWhatIf(); renderScan(); renderAna(); renderTargets(); persist(); }
+function render(){ renderDash(); renderLog(); renderStocks(); renderDivs(); renderNews(); renderScreen(); renderWhatIf(); renderScan(); renderBasket(); renderAna(); renderTargets(); persist(); }
 
 // ================= csv / json =================
 function exportCSV(){
@@ -2633,6 +2730,9 @@ function mergeDB(a,b){
              interested:(((a.stocks&&a.stocks.interested)||{updated:0}).updated||0) >=
                      (((b.stocks&&b.stocks.interested)||{updated:0}).updated||0)
                      ? ((a.stocks&&a.stocks.interested)||{updated:0,list:[]}) : b.stocks.interested,
+             basket:(((a.stocks&&a.stocks.basket)||{updated:0}).updated||0) >=
+                     (((b.stocks&&b.stocks.basket)||{updated:0}).updated||0)
+                     ? ((a.stocks&&a.stocks.basket)||{updated:0,rows:[]}) : b.stocks.basket,
              dgoal:(((a.stocks&&a.stocks.dgoal)||{updated:0}).updated||0) >=
                    (((b.stocks&&b.stocks.dgoal)||{updated:0}).updated||0)
                    ? ((a.stocks&&a.stocks.dgoal)||{updated:0}) : b.stocks.dgoal } };
