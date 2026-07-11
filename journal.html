@@ -2714,7 +2714,10 @@ function saveSync(){ localStorage.setItem(SYNCKEY, JSON.stringify(SYNC)); }
 function setChip(cls,msg){ const c=document.getElementById("syncchip"); c.className=cls; c.textContent=msg; }
 function goSync(){ document.querySelector('nav button[data-t="sync"]').click(); }
 async function gh(method,url,body){
-  const r=await fetch(url,{method,headers:{"Authorization":"Bearer "+SYNC.token,
+  // no-store: GitHub sends max-age=60, so a cached GET can hide fills the
+  // Downloads watcher pushed seconds ago — and a merge of that stale copy
+  // could push the new fills right back out of the gist
+  const r=await fetch(url,{method,cache:"no-store",headers:{"Authorization":"Bearer "+SYNC.token,
     "Accept":"application/vnd.github+json",...(body?{"Content-Type":"application/json"}:{})},
     body: body?JSON.stringify(body):undefined});
   if(!r.ok) throw new Error("GitHub "+r.status+(r.status===401?" — bad token?":""));
@@ -2777,7 +2780,7 @@ async function pullBot(){
     }
     const g=await gh("GET","https://api.github.com/gists/"+SYNC.cockpitGistId);
     const f=g.files && g.files["mnq_cockpit_data.json"]; if(!f) return;
-    const raw=f.truncated? await (await fetch(f.raw_url)).json() : JSON.parse(f.content||"{}");
+    const raw=f.truncated? await (await fetch(f.raw_url,{cache:"no-store"})).json() : JSON.parse(f.content||"{}");
     const tomb=new Set(raw.tomb||[]);
     BOT={ at:Date.now(),
       start: raw.start!==undefined? raw.start : 0,
@@ -2797,7 +2800,7 @@ async function syncNow(){
     const g=await gh("GET","https://api.github.com/gists/"+SYNC.gistId);
     const f=g.files&&g.files[GISTFILE];
     let remoteRaw={};
-    if(f) remoteRaw=f.truncated? await (await fetch(f.raw_url)).json() : JSON.parse(f.content||"{}");
+    if(f) remoteRaw=f.truncated? await (await fetch(f.raw_url,{cache:"no-store"})).json() : JSON.parse(f.content||"{}");
     const merged=mergeDB(DB, migrate(remoteRaw));
     const ms=JSON.stringify(merged);
     if(ms!==JSON.stringify(DB)){ DB=merged; persist(); adoptKeys(); render(); }
