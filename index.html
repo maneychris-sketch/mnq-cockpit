@@ -289,7 +289,7 @@ function goDash(){ document.querySelector('nav button[data-t="dash"]').click();
   document.getElementById("synccard").scrollIntoView({behavior:"smooth"}); }
 
 async function gh(method, url, body){
-  const r = await fetch(url, { method,
+  const r = await fetch(url, { method, cache: "no-store",
     headers: { "Authorization":"Bearer "+SYNC.token, "Accept":"application/vnd.github+json",
                ...(body? {"Content-Type":"application/json"}:{}) },
     body: body? JSON.stringify(body):undefined });
@@ -314,7 +314,7 @@ async function syncNow(){
     const g = await gh("GET","https://api.github.com/gists/"+SYNC.gistId);
     const f = g.files && g.files[GISTFILE];
     let remoteRaw = {};
-    if(f) remoteRaw = f.truncated ? await (await fetch(f.raw_url)).json() : JSON.parse(f.content||"{}");
+    if(f) remoteRaw = f.truncated ? await (await fetch(f.raw_url,{cache:"no-store"})).json() : JSON.parse(f.content||"{}");
     const remote = migrate(remoteRaw);
     const merged = mergeDB(DB, remote);
     const mergedStr = JSON.stringify(merged);
