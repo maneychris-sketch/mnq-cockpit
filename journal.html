@@ -123,6 +123,11 @@
   .subnav { display:flex; gap:8px; margin-bottom:14px; }
   .subnav button { background:#1a1f2e; border:1px solid var(--line); color:var(--dim);
     padding:8px 18px; border-radius:20px; font-size:13.5px; font-weight:700; cursor:pointer; }
+  .archrow { display:flex; justify-content:space-between; align-items:center; gap:10px;
+    padding:11px 12px; border:1px solid var(--line); border-radius:10px; margin:8px 0;
+    background:#151a28; cursor:pointer; }
+  .archrow:hover { border-color:#3a4361; }
+  .archdet { margin:0 0 10px; overflow-x:auto; }
   .subnav button.on { color:#1a1608; background:linear-gradient(92deg,var(--gold2),var(--gold));
     border-color:transparent; }
   .legend { display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; font-size:12.5px; color:var(--dim); }
@@ -146,6 +151,7 @@
 <nav>
   <button class="on" data-t="dash">Dashboard</button>
   <button data-t="log">Journal</button>
+  <button data-t="arch">Archived</button>
   <button data-t="stk">Stocks</button>
   <button data-t="div">Dividends</button>
   <button data-t="rsc">Research</button>
@@ -263,6 +269,13 @@
     <table id="ttab"><thead><tr><th>Date</th><th>Sym</th><th>Side</th><th>Setup</th><th>Gr</th>
       <th>Entry</th><th>Exit</th><th>Qty</th><th>Pts</th><th>R</th><th>P&amp;L $</th><th>Equity</th><th></th></tr></thead>
       <tbody></tbody></table>
+  </div>
+</div>
+
+<!-- ============ ARCHIVED ============ -->
+<div class="tab" id="arch">
+  <div class="card"><h2>Reset history <span class="note">(every account reset keeps its full record here — tap a line for its trades)</span></h2>
+    <div id="archlist"></div>
   </div>
 </div>
 
@@ -1096,14 +1109,68 @@ function resetManual(){
   if(amtS===null) return;
   const amt=parseFloat(amtS)||2000;
   const now=Date.now();
-  DB.archive=(DB.archive||[]).concat(DB.trades.map(t=>({...t, archivedAt:now})));
+  // era marker: one summary object per reset so the Archived tab can show
+  // what the account WAS (start/equity) — survives the archive union-merge by id
+  const marker={ id:"era_"+now, era:true, archivedAt:now, ts:now,
+    start:DB.start, adj:adjSum(), equity:equity(),
+    n:DB.trades.length, pnl:DB.trades.reduce((a,t)=>a+pnl(t),0) };
+  DB.archive=(DB.archive||[]).concat([marker], DB.trades.map(t=>({...t, archivedAt:now})));
   DB.trades.forEach(t=>DB.tomb.push(t.id));
   DB.adj.forEach(a=>DB.tomb.push(a.id));
   DB.trades=[]; DB.adj=[];
   DB.start=amt; DB.startTs=now;
   touched();
-  alert("Fresh start at $"+amt.toLocaleString()+". "+(n? n+" trades archived — they can't come back through sync or old CSV files.":""));
+  alert("Fresh start at $"+amt.toLocaleString()+". "+(n? n+" trades archived — see the Archived tab.":""));
 }
+
+// ================= archived (reset history) =================
+const ARCHOPEN={};                       // which reset lines are expanded — survives re-renders
+function renderArch(){
+  const box=document.getElementById("archlist"); if(!box) return;
+  const arch=DB.archive||[];
+  if(!arch.length){
+    box.innerHTML='<div class="note">Nothing here yet — when the account resets (auto-detected from a TradingView export, or via the reset button), everything it was is preserved as one line here.</div>';
+    return;
+  }
+  const g={};
+  arch.forEach(a=>{ const k=a.archivedAt||0; g[k]=g[k]||{meta:null,trades:[]};
+    if(a.era) g[k].meta=a; else g[k].trades.push(a); });
+  box.innerHTML="";
+  Object.keys(g).map(Number).sort((a,b)=>b-a).forEach(k=>{
+    const {meta,trades}=g[k];
+    trades.sort((a,b)=>((a.date||"")+(a.time||""))<((b.date||"")+(b.time||""))?-1:1);
+    const net=trades.reduce((s,t)=>s+pnl(t),0);
+    const wins=trades.filter(t=>pnl(t)>0).length;
+    const start=meta&&meta.start!=null?meta.start:null;
+    const end=meta&&meta.equity!=null?meta.equity:(start!=null?start+net:null);
+    const d=new Date(k);
+    const when=(d.getMonth()+1)+"/"+d.getDate()+"/"+d.getFullYear()+" "
+      +d.toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+    const span=trades.length? fmtD(trades[0].date)
+      +(trades.length>1?" – "+fmtD(trades[trades.length-1].date):"") : "no completed trades";
+    const rows=trades.map(t=>{ const p=pnl(t), r=rMult(t);
+      return `<tr><td>${fmtD(t.date)}${t.time?" "+t.time:""}</td><td>${t.sym||""}</td>
+        <td class="${t.dir}">${t.dir}</td><td>${t.setup||""}</td>
+        <td>${t.entry}</td><td>${t.exit}</td><td>${t.qty}</td>
+        <td>${pts(t).toFixed(2)}</td><td>${r===null?"–":r.toFixed(2)}</td>
+        <td class="${p>=0?'pos':'neg'}">${p.toFixed(2)}</td></tr>`; }).join("");
+    box.insertAdjacentHTML("beforeend", `
+      <div class="archrow" onclick="archTgl(${k})">
+        <div><b>RESET ${when}</b>
+          <div class="note">${span} · ${trades.length} trade${trades.length===1?"":"s"}${trades.length?" · "+Math.round(100*wins/trades.length)+"% win":""}</div></div>
+        <div style="text-align:right">
+          <div>${start!=null?fmt$(start)+" → ":""}<b>${end!=null?fmt$(end):"–"}</b></div>
+          <div class="${net>=0?'pos':'neg'}">${net>=0?"+":"−"}$${Math.abs(net).toFixed(2)} net</div>
+        </div>
+      </div>
+      <div class="archdet" id="archd_${k}" style="display:${ARCHOPEN[k]?"":"none"}">
+        ${trades.length?`<table><thead><tr><th>Date</th><th>Sym</th><th>Side</th><th>Setup</th><th>Entry</th><th>Exit</th><th>Qty</th><th>Pts</th><th>R</th><th>P&amp;L $</th></tr></thead><tbody>${rows}</tbody></table>`:'<div class="note">this account had no completed trades</div>'}
+      </div>`);
+  });
+}
+function archTgl(k){ ARCHOPEN[k]=!ARCHOPEN[k];
+  const d=document.getElementById("archd_"+k);
+  if(d) d.style.display=ARCHOPEN[k]?"":"none"; }
 
 // ================= account / goals =================
 function setStart(){ DB.start = parseFloat(document.getElementById("startbal").value)||0;
@@ -2677,7 +2744,7 @@ function subTab(btn){
   document.getElementById("aStk").style.display = btn.dataset.a==="aStk"?"":"none";
   render();
 }
-function render(){ renderDash(); renderLog(); renderStocks(); renderDivs(); renderNews(); renderScreen(); renderWhatIf(); renderScan(); renderBasket(); renderAna(); renderTargets(); persist(); }
+function render(){ renderDash(); renderLog(); renderArch(); renderStocks(); renderDivs(); renderNews(); renderScreen(); renderWhatIf(); renderScan(); renderBasket(); renderAna(); renderTargets(); persist(); }
 
 // ================= csv / json =================
 function exportCSV(){
