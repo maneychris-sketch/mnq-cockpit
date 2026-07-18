@@ -2792,8 +2792,12 @@ async function gh(method,url,body){
 }
 function mergeDB(a,b){
   const tomb=new Set([...(a.tomb||[]),...(b.tomb||[])]);
+  // newest ts wins per id — the old first-wins rule let a device with a STALE
+  // copy of an edited trade revert the edit and push the stale version back
   const uni=(x,y)=>{ const m=new Map();
-    [...(x||[]),...(y||[])].forEach(o=>{ if(!tomb.has(o.id)&&!m.has(o.id)) m.set(o.id,o); });
+    [...(x||[]),...(y||[])].forEach(o=>{ if(tomb.has(o.id)) return;
+      const p=m.get(o.id);
+      if(!p || (o.ts||0)>(p.ts||0)) m.set(o.id,o); });
     return [...m.values()]; };
   const sNew=(a.startTs||0)>=(b.startTs||0)?a:b;
   const gNew=((a.goals&&a.goals.updated)||0)>=((b.goals&&b.goals.updated)||0)?a:b;
